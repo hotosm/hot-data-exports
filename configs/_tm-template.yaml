@@ -47,11 +47,11 @@ source:
     enabled: false
   osm:
     enabled: true
-    engine: planet
+    engine: postpass
+    fallback_engine: rawdata
     cache_dir: ${oc.env:OEX_DATA_DIR,.}/data/osm
-    pbf_path: ${oc.env:OEX_DATA_DIR,.}/data/osm/planet/planet-latest.osm.pbf
-    auto_download_planet: true
-    planet_fallback: false
+    # Tasking Manager's project area cap (TM_MAX_AOI_AREA, default 5000 km2).
+    postpass_max_area_sq_km: 5000
   pcodes:
     enabled: false
 

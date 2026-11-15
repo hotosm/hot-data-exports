@@ -7,7 +7,8 @@
     tm_configs.py --dry-run             report what would change, write nothing
 
 Projects have no country code, so each config identifies by project id through
-output.s3.folder and extracts from the planet PBF clipped to the project polygon.
+output.s3.folder. Production configs query Postpass for the project polygon; sandbox
+configs read a PBF cut to it.
 Configs are never deleted: the API reports what moved in the interval, not
 everything that exists.
 """
@@ -33,6 +34,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = REPO_ROOT / "configs" / "_tm-template.yaml"
 MAX_INTERVAL_HOURS = 24
 SANDBOX_PBF_ENV = "TM_SANDBOX_PBF"
+EXTRACT_BATCH_ENV = "TM_EXTRACT_BATCH"
+# complete_ways holds at least 2 x highest node ID / 8 bytes per extract, about 3 GB on the planet: https://docs.osmcode.org/osmium/latest/osmium-extract.html
+DEFAULT_EXTRACT_BATCH = 6
 # TM mapping_types are 1-based indexes into this order.
 MAPPING_TYPES = ("Roads", "Buildings", "Waterways", "Landuse")
 DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -113,6 +117,8 @@ def build_config(
     cfg.boundary.geom = json.dumps(feature["geometry"])
     cfg.output.s3.folder = f"hotosm_project_{project_id}"
     if pbf_path is not None:
+        cfg.source.osm.engine = "planet"
+        cfg.source.osm.fallback_engine = ""
         cfg.source.osm.pbf_path = str(pbf_path)
         # oex would otherwise date this file against the published planet and download over it.
         cfg.source.osm.auto_download_planet = False
@@ -120,11 +126,7 @@ def build_config(
 
 
 def write_osmium_config(features: list[dict], pbf_dir: Path) -> tuple[Path, dict[str, Path]]:
-    """One osmium extract config covering every project, so the source PBF is read once.
-
-    osmium streams the whole input per invocation, so one pass with N extracts costs
-    a single read instead of N. Returns the config path and project id -> output PBF.
-    """
+    """One osmium extract config for these projects, and each project id's output PBF."""
     pbf_dir.mkdir(parents=True, exist_ok=True)
     extracts, outputs = [], {}
     for feature in features:
@@ -148,7 +150,6 @@ def write_osmium_config(features: list[dict], pbf_dir: Path) -> tuple[Path, dict
 
 
 def run_osmium_extract(source_pbf: Path, config: Path) -> None:
-    """Single pass over the source PBF, writing every project's extract."""
     command = [
         "osmium",
         "extract",
@@ -220,13 +221,16 @@ def extract_source(template_path: Path, sandbox: bool) -> str:
 def cut_project_extracts(
     features: list[dict], source: str, target: Path
 ) -> tuple[dict[str, Path], Path]:
-    """Cut every project's PBF in one pass. Returns the usable extracts, and the local source
-    for a project osmium wrote nothing for."""
+    """Cut each project's PBF, one batch per osmium pass; returns usable extracts and the source."""
+    batch_size = extract_batch_size()
     source_pbf = ensure_local_pbf(resolve_source_pbf(source), target)
     if not source_pbf.is_file():
         raise TaskingManagerError(f"source PBF {source_pbf} is not a file")
-    config, outputs = write_osmium_config(features, target)
-    run_osmium_extract(source_pbf, config)
+    outputs: dict[str, Path] = {}
+    for batch in batches(features, batch_size):
+        config, batch_outputs = write_osmium_config(batch, target)
+        run_osmium_extract(source_pbf, config)
+        outputs.update(batch_outputs)
 
     usable = {}
     for project_id, path in outputs.items():
@@ -240,6 +244,20 @@ def cut_project_extracts(
             )
         usable[project_id] = path
     return usable, source_pbf
+
+
+def extract_batch_size() -> int:
+    raw = os.environ.get(EXTRACT_BATCH_ENV, str(DEFAULT_EXTRACT_BATCH))
+    if not raw.isdecimal():
+        raise TaskingManagerError(f"{EXTRACT_BATCH_ENV} must be a whole number, got {raw!r}")
+    size = int(raw)
+    if size < 1:
+        raise TaskingManagerError(f"{EXTRACT_BATCH_ENV} must be at least 1, got {size}")
+    return size
+
+
+def batches(features: list[dict], size: int) -> list[list[dict]]:
+    return [features[start : start + size] for start in range(0, len(features), size)]
 
 
 def node_count(pbf: Path) -> int:
@@ -304,7 +322,7 @@ def main() -> int:
     parser.add_argument(
         "--extract",
         action="store_true",
-        help="cut a per-project PBF in one osmium pass over the source PBF, and point "
+        help=f"cut a per-project PBF, {EXTRACT_BATCH_ENV} projects per osmium pass, and point "
         "each config at its own extract instead of the whole file",
     )
     parser.add_argument("--pbf-dir", type=Path, help="where --extract writes per-project PBFs")

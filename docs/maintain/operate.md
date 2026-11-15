@@ -23,8 +23,9 @@ just sweep --group normal --workers 4
 
 `--due` runs whatever is due, as described in
 [Schedule groups and frequencies](../reference/schedule.md). Run `just daily` once a day,
-for example from a systemd timer: it refreshes the Tasking Manager configs, then runs
-`just sweep --due`. Run `just sweep --help` for every option. A sweep resumes by default, skipping layers
+for example from a systemd timer: it refreshes the Tasking Manager configs and runs
+`just sweep --due` even if a refresh fails. It exits non-zero if any step failed.
+Run `just sweep --help` for every option. A sweep resumes by default, skipping layers
 already uploaded from the same snapshot. A layer whose features and settings match its last
 publish is not rebuilt either; only its HDX date moves forward. `--no-hdx-push` skips HDX, but files still upload
 to S3.
@@ -36,9 +37,8 @@ just tm
 just tm-sandbox
 ```
 
-Each writes a config for every project active in the last 24 hours, cuts its area from the
-planet (refreshed when a newer one is out) or from the newest export in `TM_SANDBOX_PBF`,
-then runs every config in the group's folder. Configs stay until removed by hand.
+Each writes a config for every project active in the last 24 hours, then runs every config
+in the group's folder. Configs stay until removed by hand.
 
 ## Change the layers
 

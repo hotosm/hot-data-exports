@@ -28,19 +28,23 @@ one ISO3:
 sweep *ARGS:
     ./scripts/sweep.py "$@"
 
-# Refresh the Tasking Manager configs, then run every job that is due. Run this once a day.
+# Refresh the Tasking Manager configs, then run every due job even if a refresh fails. Run once a day.
 daily:
-    ./scripts/tm_configs.py --extract
-    ./scripts/tm_configs.py --sandbox --extract
-    ./scripts/sweep.py --due
+    #!/usr/bin/env bash
+    set -u
+    failed=0
+    ./scripts/tm_configs.py || failed=1
+    ./scripts/tm_configs.py --sandbox --extract || failed=1
+    ./scripts/sweep.py --due || failed=1
+    exit "$failed"
 
 # Regenerate Tasking Manager configs from the active-projects API, writing no exports.
 tm-configs *ARGS:
     ./scripts/tm_configs.py "$@"
 
-# Regenerate the production configs, cut their PBF extracts, then sweep them.
+# Regenerate the production configs, then sweep them.
 tm:
-    ./scripts/tm_configs.py --extract
+    ./scripts/tm_configs.py
     ./scripts/sweep.py --group tasking_manager --frequency daily
 
 # The same for sandbox projects.

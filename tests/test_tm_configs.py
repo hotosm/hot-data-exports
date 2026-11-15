@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from oex.config.loader import load_config
+from oex.config.schema import OsmSourceConfig
 from omegaconf import OmegaConf
 from upath import UPath
 
@@ -10,6 +12,7 @@ import tm_configs
 
 TEMPLATE_PATH = tm_configs.TEMPLATE
 TEMPLATE = OmegaConf.create(TEMPLATE_PATH.read_text(encoding="utf-8"))
+SEAGRASS_PATH = tm_configs.REPO_ROOT / "configs" / "seagrass_extract.yaml"
 GEOM = {"type": "Polygon", "coordinates": [[[1, 1], [2, 1], [2, 2], [1, 2], [1, 1]]]}
 
 
@@ -97,12 +100,19 @@ def pbf_path(cfg) -> str:
     return container["source"]["osm"]["pbf_path"]
 
 
-@pytest.mark.parametrize("template", ["_tm-template.yaml", "seagrass_extract.yaml"])
-def test_production_projects_read_the_planet_the_countries_read(template):
-    configs = tm_configs.REPO_ROOT / "configs"
-    assert pbf_path(OmegaConf.load(configs / template)) == pbf_path(
-        OmegaConf.load(configs / "base.yaml")
+def test_the_seagrass_template_reads_the_planet_the_countries_read():
+    assert pbf_path(OmegaConf.load(SEAGRASS_PATH)) == pbf_path(
+        OmegaConf.load(tm_configs.REPO_ROOT / "configs" / "base.yaml")
     )
+
+
+def test_a_config_without_an_extract_keeps_the_template_live_engine(tmp_path, monkeypatch):
+    monkeypatch.setenv("OEX_S3_BUCKET", "exports")
+    path = tmp_path / "4242.yaml"
+    path.write_text(OmegaConf.to_yaml(build(), resolve=False), encoding="utf-8")
+    osm = cast(OsmSourceConfig, load_config(path).source["osm"])
+    assert (osm.engine, osm.fallback_engine) == ("postpass", "rawdata")
+    assert osm.postpass_max_area_sq_km == 5000
 
 
 def test_sandbox_configs_need_extract(tmp_path, monkeypatch, capsys):
@@ -168,6 +178,7 @@ def test_a_config_on_its_own_extract_reads_it_and_never_downloads_the_planet(tmp
     cfg = tm_configs.build_config(TEMPLATE, feature(7, [2]), tmp_path / "7.osm.pbf")
     assert pbf_path(cfg) == str(tmp_path / "7.osm.pbf")
     assert cfg.source.osm.auto_download_planet is False
+    assert (cfg.source.osm.engine, cfg.source.osm.fallback_engine) == ("planet", "")
 
 
 @pytest.fixture
@@ -181,10 +192,10 @@ def planet_refreshes(monkeypatch, tmp_path):
     return calls
 
 
-def test_production_projects_extract_from_the_refreshed_template_planet(tmp_path, planet_refreshes):
+def test_a_planet_template_extracts_from_the_refreshed_planet(tmp_path, planet_refreshes):
     """Sandbox exports lack production edits, so a set sandbox variable must not leak in."""
     planet = str(tmp_path / "data/osm/planet/planet-latest.osm.pbf")
-    assert tm_configs.extract_source(tm_configs.TEMPLATE, sandbox=False) == planet
+    assert tm_configs.extract_source(SEAGRASS_PATH, sandbox=False) == planet
     assert planet_refreshes == [Path(planet)]
 
 
@@ -200,7 +211,7 @@ def test_the_planet_is_left_alone_unless_the_template_refreshes_a_local_one(
     tmp_path, planet_refreshes, setting, replacement
 ):
     """A remote source is copied from its own location, never from planet.openstreetmap.org."""
-    text = tm_configs.TEMPLATE.read_text(encoding="utf-8")
+    text = SEAGRASS_PATH.read_text(encoding="utf-8")
     assert setting in text
     template = tmp_path / "template.yaml"
     template.write_text(text.replace(setting, replacement, 1), encoding="utf-8")
@@ -276,3 +287,37 @@ def test_extract_rejects_a_source_that_is_not_there(tmp_path):
         tm_configs.cut_project_extracts(
             [feature(1, [2])], str(tmp_path / "absent.osm.pbf"), tmp_path
         )
+
+
+@pytest.mark.parametrize(("count", "sizes"), [(13, [6, 6, 1]), (6, [6]), (1, [1])])
+def test_projects_are_split_into_batches_of_at_most_the_size(count, sizes):
+    features = [feature(index, [2]) for index in range(count)]
+    assert [len(batch) for batch in tm_configs.batches(features, 6)] == sizes
+
+
+def test_each_osmium_pass_cuts_one_batch_and_every_project_gets_its_extract(tmp_path, monkeypatch):
+    source = tmp_path / "source.osm.pbf"
+    source.write_bytes(b"pbf")
+    passes = []
+
+    def record_pass(_source, config):
+        extracts = json.loads(config.read_text(encoding="utf-8"))["extracts"]
+        passes.append([extract["output"] for extract in extracts])
+        for name in passes[-1]:
+            (tmp_path / name).write_bytes(b"pbf")
+
+    monkeypatch.setenv(tm_configs.EXTRACT_BATCH_ENV, "2")
+    monkeypatch.setattr(tm_configs, "run_osmium_extract", record_pass)
+    monkeypatch.setattr(tm_configs, "node_count", lambda _pbf: 1)
+    usable, _ = tm_configs.cut_project_extracts(
+        [feature(index, [2]) for index in range(5)], str(source), tmp_path
+    )
+    assert passes == [["0.osm.pbf", "1.osm.pbf"], ["2.osm.pbf", "3.osm.pbf"], ["4.osm.pbf"]]
+    assert sorted(usable) == ["0", "1", "2", "3", "4"]
+
+
+@pytest.mark.parametrize("value", ["0", "six", "-2"])
+def test_a_batch_size_that_is_not_a_positive_whole_number_is_rejected(monkeypatch, value):
+    monkeypatch.setenv(tm_configs.EXTRACT_BATCH_ENV, value)
+    with pytest.raises(tm_configs.TaskingManagerError, match=tm_configs.EXTRACT_BATCH_ENV):
+        tm_configs.extract_batch_size()
