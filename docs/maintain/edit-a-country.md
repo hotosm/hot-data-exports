@@ -26,21 +26,25 @@ Common reasons, each with a file in the repository to copy from:
 
 === "Boundary"
 
-    The export area is the country's ADM0 boundary from geoBoundaries. Some territories have
-    none there, so their files carry an inline `boundary.geom`, as `HKG.yaml` does:
+    The export area is the country's ADM0 boundary from
+    [fieldmaps](https://fieldmaps.io/data/adm0): OpenStreetMap coastlines, U.S. Department
+    of State LSIB borders, and disputed areas as the UN Clear Map shows them. A disputed
+    area joins the export of every country it touches and of the country fieldmaps lists
+    as its group (`iso_3_grp`). `XKX.yaml` uses `boundary.source: geoboundaries` because
+    fieldmaps doesn't have Kosovo. An inline `boundary.geom` overrides the source, as in
+    `ATA.yaml`:
 
     ```yaml
-    # Natural Earth 10m admin-0 map units (Hong Kong).
+    # Everything south of 60 degrees south, the Antarctic Treaty area (Article VI).
     boundary:
-      geom: '{"type":"MultiPolygon","coordinates":[...]}'
+      geom: '{"type":"Polygon","coordinates":[[[-180,-90],[180,-90],[180,-60],[-180,-60],[-180,-90]]]}'
     ```
 
-    `base.yaml` widens every boundary by 10 km (`boundary.buffer_meters`), so coastal
-    cities and islands the ADM0 outline misses are included, then simplifies the outline
-    with a 1 km tolerance (`boundary.simplify_meters`). Each export reaches 10 km into its
-    neighbours. A country can set its own buffer, as `GRL.yaml` does. A country that turns
-    the buffer off sets `simplify_meters: 0` too, as `ATA.yaml` does. A country that lowers
-    the buffer to 1 km or less also sets a smaller `simplify_meters`, as `AND.yaml` does.
+    `base.yaml` widens every boundary by 2 km (`boundary.buffer_meters`), so piers,
+    harbours and 2 km of each neighbour are included, then simplifies the outline with a
+    500 m tolerance (`boundary.simplify_meters`). `simplify_meters` must be 0 or below half
+    of `buffer_meters`, so a country that changes the buffer sets both, as `ATA.yaml`
+    (0 and 0) and `AND.yaml` (1000 and 100) do.
 
 === "Data source"
 

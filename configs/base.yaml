@@ -5,9 +5,10 @@ subnational: true
 frequency: monthly
 
 boundary:
+  source: fieldmaps
   geoboundaries_level: ADM0
-  buffer_meters: 10000
-  simplify_meters: 1000
+  buffer_meters: 2000
+  simplify_meters: 500
 
 output:
   dir: ${oc.env:OEX_DATA_DIR,.}/output

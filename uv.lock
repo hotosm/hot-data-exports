@@ -1023,7 +1023,7 @@ docs = [
 requires-dist = [
     { name = "botocore", specifier = ">=1.43.9" },
     { name = "hdx-python-api", specifier = ">=6.6.7" },
-    { name = "oex", specifier = ">=0.4.30" },
+    { name = "oex", specifier = ">=0.4.34" },
     { name = "omegaconf", specifier = ">=2.3.0" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pyyaml", specifier = ">=6.0.2" },
@@ -1548,7 +1548,7 @@ wheels = [
 
 [[package]]
 name = "oex"
-version = "0.4.30"
+version = "0.4.34"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "antimeridian" },
@@ -1570,9 +1570,9 @@ dependencies = [
     { name = "unidecode" },
     { name = "universal-pathlib" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ba/26/d564f2329329c355ac53dbb4135886e6040dbdbc60beb29ccd5d64793cf7/oex-0.4.30.tar.gz", hash = "sha256:6306618da89c8a0c4d733df9c64e5b3b80277228038efd39a496c516171279af", size = 265708, upload-time = "2026-11-15T17:02:00.59Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a8/ae/c3c5dc3640d78db6e491b71b3643e06d9f03fa60a9ac5b17e55cbc687862/oex-0.4.34.tar.gz", hash = "sha256:b61935cae5a42a9b4d08eeedefed6a1a5ce615bd44b59eae986d7fd424e5aad8", size = 267953, upload-time = "2026-11-16T09:03:06.488Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/b3/c80d713b0a051e34cd3c0f6cc368383453689194f4c01b0a7e573e327f8f/oex-0.4.30-py3-none-any.whl", hash = "sha256:fbc5fc6d4c75d6e0d51842222af87ac64a2a0c2cd828c70cad197f86f0169236", size = 163689, upload-time = "2026-11-15T17:01:59.191Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/50/b70379fe9acb14a51fb76c1bd886041d80a5dd1a04995534e4500483ca8b/oex-0.4.34-py3-none-any.whl", hash = "sha256:67442bfe840e139dd8faff1e5070ac4efdbe885778c7465a5a63a8b2b278dfba", size = 164587, upload-time = "2026-11-16T09:03:05.33Z" },
 ]
 
 [[package]]

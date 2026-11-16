@@ -1,4 +1,4 @@
-# The 10 km default buffer would reach well into neighbouring territory.
+# The default buffer and simplify are coarse next to a country this small.
 boundary:
   buffer_meters: 1000
   simplify_meters: 100

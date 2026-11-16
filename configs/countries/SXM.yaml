@@ -1,6 +1,5 @@
-# Natural Earth 10m admin-0 map units (Sint Maarten).
+# The island is shared with Saint Martin, so the buffer stays small.
 boundary:
-  geom: '{"type":"Polygon","coordinates":[[[-63.107004,18.06212],[-63.085886,18.058511],[-63.017569,18.033391],[-63.030629,18.01911],[-63.097646,18.035956],[-63.112172,18.043036],[-63.118886,18.0515],[-63.107004,18.059475],[-63.107004,18.06212]]]}'
   buffer_meters: 1000
   simplify_meters: 100
 

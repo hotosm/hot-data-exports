@@ -5,5 +5,9 @@ source:
   osm:
     engine: planet
 
+# fieldmaps' international worldview has no Kosovo.
+boundary:
+  source: geoboundaries
+
 # HDX's own name for the location; pycountry has no entry for XKX.
 dataset_name: Kosovo
