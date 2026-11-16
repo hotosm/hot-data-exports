@@ -190,7 +190,8 @@ def write_osmium_config(features: list[dict], pbf_dir: Path) -> tuple[Path, dict
     for feature in features:
         project_id = str(feature["properties"]["project_id"])
         polygon = pbf_dir / f"{project_id}.geojson"
-        polygon.write_text(json.dumps(feature["geometry"]), encoding="utf-8")
+        polygon_feature = {"type": "Feature", "properties": {}, "geometry": feature["geometry"]}
+        polygon.write_text(json.dumps(polygon_feature), encoding="utf-8")
         output = pbf_dir / f"{project_id}.osm.pbf"
         extracts.append(
             {

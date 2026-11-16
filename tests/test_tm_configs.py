@@ -353,7 +353,8 @@ def test_the_osmium_config_holds_one_extract_per_project(tmp_path):
 
 def test_each_extract_gets_its_own_polygon_file(tmp_path):
     tm_configs.write_osmium_config([feature(1, [2])], tmp_path)
-    assert json.loads((tmp_path / "1.geojson").read_text(encoding="utf-8")) == GEOM
+    written = json.loads((tmp_path / "1.geojson").read_text(encoding="utf-8"))
+    assert written == {"type": "Feature", "properties": {}, "geometry": GEOM}
 
 
 def test_a_plain_location_is_used_as_is():
