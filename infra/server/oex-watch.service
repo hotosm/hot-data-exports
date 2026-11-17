@@ -1,0 +1,14 @@
+[Unit]
+Description=OSM country exports, pull main and export merged event configs
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=kshitij
+WorkingDirectory=/mnt/disk/osm-country-exports
+ExecStart=/mnt/disk/oex-watch.sh
+TimeoutStartSec=infinity
+MemoryHigh=24G
+MemoryMax=28G
+MemorySwapMax=0

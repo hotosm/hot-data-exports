@@ -28,15 +28,9 @@ one ISO3:
 sweep *ARGS:
     ./scripts/sweep.py "$@"
 
-# Refresh the Tasking Manager configs, then run every due job even if a refresh fails. Run once a day.
+# Run every due job. Run once a day.
 daily:
-    #!/usr/bin/env bash
-    set -u
-    failed=0
-    ./scripts/tm_configs.py || failed=1
-    ./scripts/tm_configs.py --sandbox --extract || failed=1
-    ./scripts/sweep.py --due || failed=1
-    exit "$failed"
+    ./scripts/sweep.py --due
 
 # Regenerate Tasking Manager configs from the active-projects API, writing no exports.
 tm-configs *ARGS:
@@ -45,12 +39,12 @@ tm-configs *ARGS:
 # Regenerate the production configs, then sweep them.
 tm:
     ./scripts/tm_configs.py
-    ./scripts/sweep.py --group tasking_manager --frequency daily
+    ./scripts/sweep.py --group tasking_manager --frequency "as needed"
 
 # The same for sandbox projects.
 tm-sandbox:
     ./scripts/tm_configs.py --sandbox --extract
-    ./scripts/sweep.py --group tasking_manager_sandbox --frequency daily
+    ./scripts/sweep.py --group tasking_manager_sandbox --frequency "as needed"
 
 # Publish every campaign in configs/tm_campaigns.yaml to HDX. Takes --dry-run.
 tm-boundaries *ARGS:

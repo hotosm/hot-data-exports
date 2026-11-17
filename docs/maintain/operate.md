@@ -22,9 +22,9 @@ just sweep --group normal --workers 4
 ```
 
 `--due` runs whatever is due, as described in
-[Schedule groups and frequencies](../reference/schedule.md). Run `just daily` once a day,
-for example from a systemd timer: it refreshes the Tasking Manager configs and runs
-`just sweep --due` even if a refresh fails. It exits non-zero if any step failed.
+[Schedule groups and frequencies](../reference/schedule.md). `just daily` runs
+`just sweep --due`; the export server runs it at 02:00 UTC, as set up in
+[`infra/server`](https://github.com/hotosm/osm-country-exports/tree/main/infra/server).
 Run `just sweep --help` for every option. A sweep resumes by default, skipping layers
 already uploaded from the same snapshot. A layer whose features and settings match its last
 publish is not rebuilt either; only its HDX date moves forward. `--no-hdx-push` skips HDX, but files still upload

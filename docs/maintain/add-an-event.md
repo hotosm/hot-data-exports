@@ -66,9 +66,9 @@ publish.
 
 ## 4. Keep it updating
 
-Set `frequency:` to `daily`, `weekly` or `monthly`; this is also what HDX shows. Once the
-file is merged to `main`, the daily `just daily` run on the export server publishes it and
-then keeps it on that frequency. The
+Set `frequency:` to `daily`, `weekly` or `monthly`; this is also what HDX shows. The
+export server checks `main` every 5 minutes. After a merge that adds an event file, it
+publishes the file once the server lock is free, then keeps it on that frequency. The
 `events` group's `overrides:` in `scripts/schedule.yaml` can change when a file runs,
 disable it, or set an `expires:` date, without changing what HDX shows.
 

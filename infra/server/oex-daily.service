@@ -1,0 +1,15 @@
+[Unit]
+Description=OSM country exports, daily due sweep
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=kshitij
+WorkingDirectory=/mnt/disk/osm-country-exports
+ExecStart=/mnt/disk/oex-daily.sh
+TimeoutStartSec=infinity
+# Leaves room for sshd and the system when an export runs away.
+MemoryHigh=24G
+MemoryMax=28G
+MemorySwapMax=0

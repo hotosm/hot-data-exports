@@ -89,9 +89,9 @@ events:
 tasking_manager:
   enabled: true
   dir: configs/tasking_manager
-  frequency: daily
+  frequency: as needed
 
 tasking_manager_sandbox:
   enabled: true
   dir: configs/tasking_manager_sandbox
-  frequency: daily
+  frequency: as needed

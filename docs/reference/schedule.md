@@ -12,8 +12,8 @@ says what is exported and how often. It is split into groups, run in the order t
 | `big` | 12 large countries, such as the USA, Brazil, India and Russia | Yearly |
 | `minimal` | 12 uninhabited or nearly empty territories, such as Antarctica | As needed, run by hand |
 | `events` | Disaster and response exports, one config file each, in `configs/events/` | Set per config |
-| `tasking_manager` | One export per active Tasking Manager project | Daily |
-| `tasking_manager_sandbox` | The same for the Tasking Manager sandbox | Daily |
+| `tasking_manager` | One export per active Tasking Manager project | As needed, run with `just tm` |
+| `tasking_manager_sandbox` | The same for the Tasking Manager sandbox | As needed, run with `just tm-sandbox` |
 
 ## Group settings
 
@@ -54,12 +54,10 @@ prints why.
 The frequencies are the ones HDX uses: `daily`, `weekly`, `monthly`, `quarterly`,
 `yearly`, and `as needed`. `just sweep --due` runs every job whose last publish is older
 than its frequency, group by group in order. The last publish is the oldest `updated` time
-on the job's STAC Items, which oex sets when a layer reaches HDX. A layer with no Item,
-such as a new category, or with an undated one, left by a failed publish, makes its job due.
-A job that doesn't publish to HDX, such as a Tasking Manager project, is always due. Source
-`.env` first, since the sweep reads every config. `just daily` runs it after refreshing the
-Tasking Manager configs. Jobs on `as needed` run only by hand, with
-`--frequency "as needed"`.
+on the job's STAC Items, which oex sets when a layer reaches HDX. A layer missing its Item,
+such as a new category, or whose Item is undated after a failed publish, makes its job due.
+Source `.env` first, since the sweep reads every config. Jobs on `as needed` run only by
+hand, with `--frequency "as needed"`.
 
 For a country, the frequency is also the update frequency its HDX datasets show, and the
 schedule is the only place to set it. A change reaches HDX the next time the country is
