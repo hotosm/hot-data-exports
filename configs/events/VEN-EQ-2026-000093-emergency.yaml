@@ -12,6 +12,11 @@ boundary:
   buffer_meters: 0
 
 output:
+  pmtiles:
+    enabled: false
+  zip_formats: null
+  stac:
+    catalog: false
   dir: ${oc.env:OEX_DATA_DIR,.}/output
   formats: [gpkg, kml, shp]
   metadata: true

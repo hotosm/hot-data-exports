@@ -1,0 +1,27 @@
+# Copy to configs/events/<ISO3>-<hazard>-<year>-<name>.yaml and replace every value below.
+
+iso3: NPL
+key: hot_flood_example
+frequency: daily
+
+boundary:
+  geom: '{"type":"Polygon","coordinates":[[[84.0,27.0],[84.1,27.0],[84.1,27.1],[84.0,27.1],[84.0,27.0]]]}'
+
+output:
+  s3:
+    folder: NPL_FLOOD_EXAMPLE
+
+hdx:
+  time_period_start: "2026-01-01"
+  combine: true
+  combined:
+    name: hot_flood_npl_example
+    title: Nepal Flood 2026, Example Area
+    source: OpenStreetMap contributors
+    tags: [flooding, affected area, geodata]
+    notes: |
+      What the dataset covers, which area, and why it was made.
+    caveats: |
+      What it leaves out.
+
+categories_file: configs/_hot-schema.yaml

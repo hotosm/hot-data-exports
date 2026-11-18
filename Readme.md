@@ -7,7 +7,7 @@ HOT OpenStreetMap country-scale HDX exports, driven by
 
 `configs/base.yaml` holds the global defaults (HDX, S3, output) and `configs/_hot-schema.yaml`
 the export layers with their HDX metadata. `configs/countries/<ISO3>.yaml` overrides a country
-and is merged over the base; `configs/events/` holds standalone event configs. Tasking Manager
+and is merged over the base; `configs/events/` holds event configs, each merged over `configs/_event-base.yaml`. Tasking Manager
 configs are generated per run into `configs/tasking_manager/` (and `_sandbox/`) from
 `configs/_tm-template.yaml`, and `configs/tm_campaigns.yaml` lists the campaigns whose
 project boundaries are published.

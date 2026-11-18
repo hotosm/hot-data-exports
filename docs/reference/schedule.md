@@ -21,8 +21,9 @@ A group holds one of two job sources.
 
 - `countries:` lists ISO3 codes. Each country's config is `configs/base.yaml`, with
   `configs/countries/<ISO3>.yaml` merged over it when that file exists.
-- `dir:` names a folder of standalone configs, one job per file. A config's own
-  `frequency:` wins over the group's.
+- `dir:` names a folder of configs, one job per file. A config's own `frequency:` wins over
+  the group's. `base:` names a config every file in the folder is merged over; the file's
+  own values win.
 
 `frequency:` is the group's update frequency. `workers:` sets how many countries export
 at once in a country group (1 when left out); each gets an equal share of the memory.

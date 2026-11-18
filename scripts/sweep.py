@@ -155,6 +155,17 @@ def country_config(iso3: str, frequency: str, memory_gb: int | None = None) -> P
     return target
 
 
+def event_config(group: str, config: Path, base: Path) -> Path:
+    """An event file merged over the group's shared base; what the file sets wins."""
+    if not base.is_file():
+        raise ScheduleError(f"group {group!r}: base {base} does not exist")
+    merged = OmegaConf.merge(OmegaConf.load(base), OmegaConf.load(config))
+    target = WORK_DIR / "merged" / group / config.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(OmegaConf.to_yaml(merged, resolve=False), encoding="utf-8")
+    return target
+
+
 def commands_for(config: Path) -> list[str]:
     """Which oex-cli subcommands a config needs. Both sources enabled means both."""
     raw = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
@@ -248,11 +259,12 @@ def resolve(
                 skipped.append(f"{name}/{label}: {reason}")
                 continue
 
-            config = (
-                country_config(str(ref), attrs["frequency"], memory_gb)
-                if kind == "country"
-                else Path(str(ref))
-            )
+            if kind == "country":
+                config = country_config(str(ref), attrs["frequency"], memory_gb)
+            elif "base" in group:
+                config = event_config(name, Path(str(ref)), REPO_ROOT / group["base"])
+            else:
+                config = Path(str(ref))
             iso3 = str(ref) if kind == "country" else None
             commands = commands_for(config)
             for command in commands:

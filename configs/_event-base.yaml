@@ -1,0 +1,56 @@
+# Merged under every file in configs/events/; a value set in the event file wins.
+
+subnational: false
+
+output:
+  stac:
+    catalog: true
+    id: hotosm-country-exports
+    title: HOT OpenStreetMap country exports
+    description: OpenStreetMap layers per country, published to HDX by HOT.
+    group: activations
+    group_title: Activations
+  dir: ${oc.env:OEX_DATA_DIR,.}/output
+  formats: [gpkg, kml, shp]
+  # Only these are zipped. GeoJSON publishes as a bare file so it can be fetched straight
+  # from its URL; a shapefile is always zipped.
+  zip_formats: [gpkg, kml]
+  metadata: true
+  report:
+    enabled: true
+  # Past the z12 default so buildings stay legible at damage-assessment zooms.
+  pmtiles:
+    enabled: true
+    max_zoom: 15
+  s3:
+    enabled: true
+    bucket: ${oc.env:OEX_S3_BUCKET}
+    prefix: ISO3
+    region: us-east-1
+    acl: public-read
+
+parallel:
+  enabled: true
+
+source:
+  overture:
+    release: latest
+  osm:
+    engine: postpass
+    fallback_engine: rawdata
+    cache_dir: ${oc.env:OEX_DATA_DIR,.}/data/osm
+  pcodes:
+    enabled: true
+    cache_dir: ${oc.env:OEX_DATA_DIR,.}/data/pcodes
+
+hdx:
+  push: true
+  site: prod
+  api_key: ${oc.env:HDX_API_KEY}
+  owner_org: ${oc.env:HDX_OWNER_ORG}
+  maintainer: ${oc.env:HDX_MAINTAINER}
+  user_agent: osm-country-exports/0.1
+  methodology: Other
+  methodology_other: Open Source Geographic information
+  # The Overture run must keep what the OSM run put on the combined dataset.
+  purge_existing_resources: false

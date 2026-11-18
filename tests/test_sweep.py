@@ -219,6 +219,45 @@ def test_a_config_with_every_source_disabled_is_an_error(events_dir):
         resolve({"groups": ["events"], "events": {"dir": "configs/events"}})
 
 
+@pytest.fixture
+def event_base(events_dir, tmp_path, monkeypatch):
+    monkeypatch.setattr(sweep, "WORK_DIR", tmp_path / "work")
+    base = tmp_path / "configs" / "_event-base.yaml"
+    base.write_text(
+        "hdx:\n  site: prod\n  owner_org: hot\nsource:\n  overture:\n    enabled: false\n",
+        encoding="utf-8",
+    )
+    return {"dir": "configs/events", "base": "configs/_event-base.yaml"}
+
+
+def test_an_event_file_merges_over_the_group_base_and_its_own_values_win(events_dir, event_base):
+    write_config(events_dir, "quake.yaml", "iso3: NPL\nhdx:\n  site: stage\n", frequency="daily")
+    jobs, _ = resolve({"groups": ["events"], "events": event_base})
+    merged = yaml.safe_load(jobs[0].config.read_text(encoding="utf-8"))
+    assert (merged["hdx"]["site"], merged["hdx"]["owner_org"]) == ("stage", "hot")
+
+
+def test_an_event_file_takes_its_sources_from_the_base(events_dir, event_base):
+    body = "iso3: NPL\nsource:\n  osm:\n    enabled: true\n"
+    write_config(events_dir, "quake.yaml", body, frequency="daily")
+    jobs, _ = resolve({"groups": ["events"], "events": event_base})
+    assert [job.command for job in jobs] == ["osm"]
+
+
+def test_a_missing_event_base_is_a_schedule_error(events_dir, tmp_path, monkeypatch):
+    monkeypatch.setattr(sweep, "WORK_DIR", tmp_path / "work")
+    write_config(events_dir, "quake.yaml", OSM_CONFIG, frequency="daily")
+    group = {"dir": "configs/events", "base": "configs/_absent.yaml"}
+    with pytest.raises(sweep.ScheduleError, match="base"):
+        resolve({"groups": ["events"], "events": group})
+
+
+def test_an_event_group_without_a_base_runs_the_file_as_written(events_dir):
+    config = write_config(events_dir, "quake.yaml", OSM_CONFIG, frequency="daily")
+    jobs, _ = resolve({"groups": ["events"], "events": {"dir": "configs/events"}})
+    assert jobs[0].config == config
+
+
 def test_no_hdx_push_reaches_every_command_line(tmp_path, monkeypatch):
     monkeypatch.setattr(sweep, "WORK_DIR", tmp_path / "work")
     jobs, _ = sweep.resolve(
