@@ -2,11 +2,10 @@
 """Publish the geometry a buffered extraction boundary was derived from, to HDX."""
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
-from oex.boundary import area_sq_km
+from oex.boundary import area_sq_km, read_geometry
 from oex.config.loader import load_config
 from oex.naming import COMBINED_SLUG, combined_dataset_name
 from oex.s3 import artifact_key
@@ -21,7 +20,7 @@ EPILOG = """examples:
 oex publishes the buffered boundary as the Area of Interest; this publishes what it was
 widened from, so the difference is visible.
 
-exit codes: 1 the HDX call failed, 2 the config has no buffered boundary."""
+exit codes: 1 the HDX call failed, 2 the config has no readable buffered boundary."""
 
 
 def as_feature_collection(geometry: dict, properties: dict) -> dict:
@@ -58,7 +57,11 @@ def main() -> int:
 
     dataset_name = combined_dataset_name(cfg)
     file_name = args.file_name or f"{dataset_name}_{args.category}.geojson"
-    geometry = json.loads(cfg.boundary.geom)
+    try:
+        geometry = read_geometry(cfg.boundary.geom)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     area = area_sq_km(geometry)
     print(f"  {args.name}\n    {file_name}  {area:.2f} sq km")
     if args.dry_run:

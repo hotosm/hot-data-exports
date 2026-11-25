@@ -3,20 +3,19 @@
 
     tm_configs.py                       production projects, last 24h
     tm_configs.py --interval 6          a shorter window
-    tm_configs.py --sandbox             sandbox projects, into their own group dir
+    tm_configs.py --sandbox --extract   sandbox projects, cut from TM_SANDBOX_PBF
     tm_configs.py --dry-run             report what would change, write nothing
 
-Projects have no country code, so each config identifies by project id through
-output.s3.folder. Production configs query Postpass for the project polygon; sandbox
-configs read a PBF cut to it.
-Configs are never deleted: the API reports what moved in the interval, not
-everything that exists.
+A project doesn't have a country code, so output.s3.folder carries its id. Production configs
+query Postpass for the project polygon; sandbox configs read a PBF cut to it. Without
+--project, each run deletes the configs of projects no longer active.
 """
 
 import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -45,7 +44,6 @@ OSM_KEY = re.compile(r"[A-Za-z0-9_:.-]+")
 
 
 def _display(path: Path) -> str:
-    """Repo-relative when it is inside the repo, never raising for --out elsewhere."""
     return os.path.relpath(path, REPO_ROOT)
 
 
@@ -79,10 +77,7 @@ def fetch_project(project_id: str, timeout: int) -> dict:
 
 
 def category_names(mapping_types: list | None) -> list[str]:
-    """TM mapping types to template category names, dropping ones oex has no filter for.
-
-    The API sends 1-based indexes; tm-extractor also accepts names like LAND_USE.
-    """
+    """TM mapping types, as 1-based indexes or names like LAND_USE, to template categories."""
     by_name = {name.upper(): name for name in MAPPING_TYPES}
     names = []
     for value in mapping_types or []:
@@ -98,10 +93,7 @@ def category_names(mapping_types: list | None) -> list[str]:
 
 
 def custom_categories(custom_types: object) -> list[dict]:
-    """TM custom mapping types to categories, each publishing to its own folder.
-
-    Keys become SQL in `select`, and names and values pass through OmegaConf, so a type
-    the TM would have rejected is skipped rather than trusted."""
+    """TM custom mapping types to categories; a type the TM would reject is skipped, not trusted."""
     categories, taken = [], {slugify(name) for name in MAPPING_TYPES}
     for custom in custom_types if isinstance(custom_types, list) else []:
         custom = custom if isinstance(custom, dict) else {}
@@ -128,8 +120,7 @@ def custom_categories(custom_types: object) -> list[dict]:
 
 
 def custom_filter(tags: object) -> dict:
-    """`key=value` tags as an oex filter matching any of them, `key=*` for any value.
-    Empty when a tag is invalid."""
+    """`key=value` tags as an oex filter matching any, `key=*` for any value; empty if invalid."""
     if not isinstance(tags, list):
         return {}
     values: dict[str, list[str]] = {}
@@ -159,10 +150,7 @@ def build_config(
     pbf_path: Path | None = None,
     all_categories: bool = False,
 ):
-    """Fill the template in for one project. Returns None when nothing maps.
-
-    A caller-supplied template declares the categories it wants, so the project's
-    mapping types and custom mapping types only apply to the default one."""
+    """The template filled in for one project, or None when nothing maps."""
     project_id = feature["properties"]["project_id"]
     cfg = OmegaConf.create(OmegaConf.to_yaml(template, resolve=False))
     if not all_categories:
@@ -226,11 +214,7 @@ def run_osmium_extract(source_pbf: Path, config: Path) -> None:
 
 
 def resolve_source_pbf(location: str) -> str:
-    """A location ending in `/` is a prefix of dated folders; take the newest PBF in it.
-
-    The sandbox publishes one export per day under `exports/<YYYY-MM-DD>/`, so the
-    source moves daily and cannot be pinned in the environment.
-    """
+    """The newest PBF when the location ends in `/`, as the sandbox exports to dated folders."""
     if not location.endswith("/"):
         return location
     root = UPath(location)
@@ -257,13 +241,13 @@ def ensure_local_pbf(source: str, cache_dir: Path) -> Path:
         print(f"source: reusing {_display(local)}")
         return local
     print(f"source: downloading {source} ({size / 1e6:.1f} MB) -> {_display(local)}")
-    local.write_bytes(remote.read_bytes())
+    with remote.open("rb") as source_file, local.open("wb") as local_file:
+        shutil.copyfileobj(source_file, local_file)
     return local
 
 
 def extract_source(template_path: Path, sandbox: bool) -> str:
-    """Sandbox projects are mapped in their own database, exported to the location in the
-    environment; production ones come from the template's planet, refreshed when outdated."""
+    """The sandbox export named in the environment, or the template's planet for production."""
     if sandbox:
         location = os.environ.get(SANDBOX_PBF_ENV)
         if not location:
@@ -328,10 +312,19 @@ def node_count(pbf: Path) -> int:
     )
     if completed.returncode != 0:
         raise TaskingManagerError(f"osmium fileinfo failed for {pbf}: {completed.stderr.strip()}")
-    return int(completed.stdout.strip() or 0)
+    if not completed.stdout.strip():
+        raise TaskingManagerError(f"osmium fileinfo printed no node count for {pbf}")
+    return int(completed.stdout.strip())
 
 
-def sync(out_dir: Path, configs: dict, dry_run: bool) -> int:
+def sync(out_dir: Path, configs: dict, dry_run: bool, prune: bool = False) -> int:
+    """Writes changed configs; with `prune`, removes project configs no longer listed."""
+    if prune:
+        generated = {path for path in out_dir.glob("*.yaml") if path.stem.isdigit()}
+        for stale in sorted(generated - {out_dir / name for name in configs}):
+            print(f"remove {_display(stale)}")
+            if not dry_run:
+                stale.unlink()
     written = 0
     for name, cfg in sorted(configs.items()):
         text = OmegaConf.to_yaml(cfg, resolve=False)
@@ -372,7 +365,7 @@ def main() -> int:
         "--interval",
         type=int,
         default=MAX_INTERVAL_HOURS,
-        help=f"hours of activity, 1..{MAX_INTERVAL_HOURS} (default 24); unused with --project",
+        help=f"hours of activity, 1..{MAX_INTERVAL_HOURS} (default {MAX_INTERVAL_HOURS})",
     )
     parser.add_argument("--sandbox", action="store_true", help="sandbox projects")
     parser.add_argument("--out", type=Path, help="output dir (default: the group dir)")
@@ -382,7 +375,7 @@ def main() -> int:
         "--extract",
         action="store_true",
         help=f"cut a per-project PBF, {EXTRACT_BATCH_ENV} projects per osmium pass, and point "
-        "each config at its own extract instead of the whole file",
+        "each config at its own extract",
     )
     parser.add_argument("--pbf-dir", type=Path, help="where --extract writes per-project PBFs")
     parser.add_argument(
@@ -408,7 +401,7 @@ def main() -> int:
     if args.sandbox and not args.extract and not args.dry_run:
         print(
             f"tm: --sandbox needs --extract, since {SANDBOX_PBF_ENV} names a folder of dated "
-            "exports rather than one file",
+            "exports",
             file=sys.stderr,
         )
         return 2
@@ -455,7 +448,7 @@ def main() -> int:
             continue
         configs[f"{project_id}.yaml"] = cfg
 
-    written = sync(out_dir, configs, args.dry_run)
+    written = sync(out_dir, configs, args.dry_run, prune=not args.project)
     scope = "sandbox" if args.sandbox else "production"
     print(
         f"tm: {scope} active={len(features)} configs={len(configs)} "

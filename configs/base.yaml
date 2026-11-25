@@ -6,7 +6,6 @@ frequency: monthly
 
 boundary:
   source: fieldmaps
-  geoboundaries_level: ADM0
   buffer_meters: 2000
   simplify_meters: 500
 
@@ -14,7 +13,6 @@ output:
   dir: ${oc.env:OEX_DATA_DIR,.}/output
   formats: [gpkg, shp, geoparquet]
   metadata: true
-  resume: true
   skip_unchanged: true
   report:
     enabled: true
@@ -33,11 +31,8 @@ output:
     enabled: true
     bucket: ${oc.env:OEX_S3_BUCKET}
     prefix: ISO3
-    region: us-east-1
-    acl: public-read
-
-parallel:
-  enabled: true
+    region: ${oc.env:OEX_S3_REGION,us-east-1}
+    acl: ${oc.env:OEX_S3_ACL,public-read}
 
 hdx:
   push: true
@@ -46,8 +41,6 @@ hdx:
   owner_org: ${oc.env:HDX_OWNER_ORG}
   maintainer: ${oc.env:HDX_MAINTAINER}
   user_agent: osm-country-exports/0.1
-  methodology: Other
-  methodology_other: Open Source Geographic information
   purge_existing_resources: false
 
 source:
@@ -55,20 +48,12 @@ source:
     enabled: false
 
   osm:
-    enabled: true
-    engine: geofabrik
     cache_dir: ${oc.env:OEX_DATA_DIR,.}/data/osm
-    snapshot: latest
-    geofabrik_clip_to_boundary: true
     planet_fallback: true
     pbf_path: ${oc.env:OEX_DATA_DIR,.}/data/osm/planet/planet-latest.osm.pbf
     auto_download_planet: true
-    keep_pbf: false
-
   pcodes:
     enabled: true
     cache_dir: ${oc.env:OEX_DATA_DIR,.}/data/pcodes
-    levels: [1, 2, 3, 4]
-    # h3_neighbor trades ~5 km accuracy at admin borders for bounded memory. The geos
-    # path allocates outside DuckDB's budget and exhausts a 16 GB box on Finland.
+    # geos runs outside DuckDB's memory budget, so large countries can exhaust memory.
     boundary_resolution: h3_neighbor

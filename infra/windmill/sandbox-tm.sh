@@ -16,12 +16,16 @@ while IFS= read -r line; do
   export "${line%%=*}=${line#*=}"
 done < <(jq -r 'to_entries[] | "\(.key)=\(.value|tostring)"' <<< "$creds_json")
 
-cd /data/osm-country-exports 2>/dev/null || {
-  git clone https://github.com/hotosm/osm-country-exports /data/osm-country-exports
-  cd /data/osm-country-exports
-}
+if [ ! -d /data/hot-data-exports ]; then
+  git clone https://github.com/hotosm/hot-data-exports /data/hot-data-exports
+fi
+cd /data/hot-data-exports
+# Serialises Windmill runs that share this checkout.
+mkdir -p .sweep
+exec 9>.sweep/server.lock
+flock 9
 git pull --ff-only
-uv sync --frozen
+uv sync --locked
 
 if [ -n "$project" ]; then
   args=(--sandbox --extract --export --project "$project")

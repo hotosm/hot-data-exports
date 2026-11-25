@@ -20,7 +20,6 @@ SEAGRASS = {"name": "Seagrass", "tags": ["seamark:type=seagrass"]}
 
 @pytest.fixture
 def memory_exports():
-    """A dated export prefix on an in-memory filesystem, so no network is involved."""
     root = "memory://tm-exports"
     for day in ("2026-08-04", "2026-08-05", "2026-08-06"):
         UPath(f"{root}/{day}/sandbox-export.pbf").write_bytes(b"PBFDATA")
@@ -61,7 +60,6 @@ def test_missing_mapping_types_are_dropped():
 
 
 def test_a_project_identifies_by_id_and_carries_no_country():
-    """The folder is the whole dataset prefix, which the TM frontend uses as the path."""
     cfg = build(project_id=4242)
     assert cfg.output.s3.folder == "hotosm_project_4242"
     assert "iso3" not in cfg
@@ -177,7 +175,6 @@ def test_custom_types_are_added_to_the_mapping_type_categories():
 
 
 def test_a_project_with_only_custom_types_is_generated(tmp_path, monkeypatch):
-    """Mapping type 5 is OTHER, which no template category covers."""
     monkeypatch.setattr("sys.argv", ["tm_configs", "--out", str(tmp_path)])
     monkeypatch.setattr(
         tm_configs, "fetch_active_projects", lambda *_: [feature(1, [5], custom=[SEAGRASS])]
@@ -192,7 +189,6 @@ def test_a_caller_supplied_template_ignores_custom_types():
 
 
 def test_a_custom_type_lands_in_the_folder_the_tm_frontend_requests():
-    """The frontend lowercases the name and joins its words with `_`, as oex does."""
     cfg = build(custom=[{"name": "Water points", "tags": ["amenity=drinking_water"]}])
     assert slugify(cfg.categories[-1].name) == "water_points"
 
@@ -206,7 +202,6 @@ def test_a_custom_type_loads_as_an_oex_category(tmp_path, monkeypatch):
 
 
 def pbf_path(cfg) -> str:
-    """Unresolved, so the assertion does not depend on the environment."""
     container = cast(dict, OmegaConf.to_container(cfg, resolve=False))
     return container["source"]["osm"]["pbf_path"]
 
@@ -227,14 +222,12 @@ def test_a_config_without_an_extract_keeps_the_template_live_engine(tmp_path, mo
 
 
 def test_sandbox_configs_need_extract(tmp_path, monkeypatch, capsys):
-    """Without it a sandbox config would point at the folder of daily exports."""
     monkeypatch.setattr("sys.argv", ["tm_configs", "--sandbox", "--out", str(tmp_path)])
     assert tm_configs.main() == 2
     assert "--sandbox needs --extract" in capsys.readouterr().err
 
 
 def test_a_project_without_its_own_extract_reads_the_resolved_source(tmp_path, monkeypatch):
-    """The sandbox variable is a folder, so the fallback must be the day's downloaded file."""
     source = tmp_path / "2026-11-10-sandbox-export.pbf"
     monkeypatch.setattr(
         "sys.argv", ["tm_configs", "--sandbox", "--extract", "--out", str(tmp_path)]
@@ -269,12 +262,18 @@ def test_sync_leaves_unchanged_configs_alone(tmp_path):
     assert tm_configs.sync(tmp_path, configs, dry_run=False) == 0
 
 
-def test_a_config_missing_from_the_api_is_kept(tmp_path):
-    """The API reports what moved in the interval, so its silence is not a delete signal."""
+@pytest.mark.parametrize(("prune", "kept"), [(False, True), (True, False)])
+def test_only_pruning_removes_configs_of_projects_no_longer_active(tmp_path, prune, kept):
     tm_configs.sync(tmp_path, {"1.yaml": build(1), "2.yaml": build(2)}, dry_run=False)
-    assert tm_configs.sync(tmp_path, {"1.yaml": build(1)}, dry_run=False) == 0
-    assert (tmp_path / "2.yaml").exists()
+    tm_configs.sync(tmp_path, {"1.yaml": build(1)}, dry_run=False, prune=prune)
+    assert (tmp_path / "2.yaml").exists() is kept
     assert (tmp_path / "1.yaml").exists()
+
+
+def test_a_dry_run_prunes_nothing(tmp_path):
+    tm_configs.sync(tmp_path, {"1.yaml": build(1), "2.yaml": build(2)}, dry_run=False)
+    tm_configs.sync(tmp_path, {"1.yaml": build(1)}, dry_run=True, prune=True)
+    assert (tmp_path / "2.yaml").exists()
 
 
 def test_dry_run_touches_nothing(tmp_path):
@@ -285,7 +284,6 @@ def test_dry_run_touches_nothing(tmp_path):
 
 
 def test_a_config_on_its_own_extract_reads_it_and_never_downloads_the_planet(tmp_path):
-    """A kept extract falls behind the published planet, so oex would download over it."""
     cfg = tm_configs.build_config(TEMPLATE, feature(7, [2]), tmp_path / "7.osm.pbf")
     assert pbf_path(cfg) == str(tmp_path / "7.osm.pbf")
     assert cfg.source.osm.auto_download_planet is False
@@ -294,7 +292,6 @@ def test_a_config_on_its_own_extract_reads_it_and_never_downloads_the_planet(tmp
 
 @pytest.fixture
 def planet_refreshes(monkeypatch, tmp_path):
-    """Records each planet refresh instead of downloading the planet."""
     monkeypatch.setenv("OEX_S3_BUCKET", "exports")
     monkeypatch.setenv("OEX_DATA_DIR", str(tmp_path))
     monkeypatch.setenv(tm_configs.SANDBOX_PBF_ENV, "s3://sandbox/exports/")
@@ -304,7 +301,6 @@ def planet_refreshes(monkeypatch, tmp_path):
 
 
 def test_a_planet_template_extracts_from_the_refreshed_planet(tmp_path, planet_refreshes):
-    """Sandbox exports lack production edits, so a set sandbox variable must not leak in."""
     planet = str(tmp_path / "data/osm/planet/planet-latest.osm.pbf")
     assert tm_configs.extract_source(SEAGRASS_PATH, sandbox=False) == planet
     assert planet_refreshes == [Path(planet)]
@@ -321,7 +317,6 @@ def test_a_planet_template_extracts_from_the_refreshed_planet(tmp_path, planet_r
 def test_the_planet_is_left_alone_unless_the_template_refreshes_a_local_one(
     tmp_path, planet_refreshes, setting, replacement
 ):
-    """A remote source is copied from its own location, never from planet.openstreetmap.org."""
     text = SEAGRASS_PATH.read_text(encoding="utf-8")
     assert setting in text
     template = tmp_path / "template.yaml"
@@ -336,7 +331,6 @@ def test_sandbox_projects_extract_from_the_sandbox_exports(planet_refreshes):
 
 
 def test_sandbox_extracts_need_the_sandbox_exports_set(monkeypatch):
-    """The planet does not hold sandbox edits, so there is nothing to fall back to."""
     monkeypatch.delenv(tm_configs.SANDBOX_PBF_ENV, raising=False)
     with pytest.raises(tm_configs.TaskingManagerError, match=tm_configs.SANDBOX_PBF_ENV):
         tm_configs.extract_source(TEMPLATE_PATH, sandbox=True)
@@ -433,3 +427,20 @@ def test_a_batch_size_that_is_not_a_positive_whole_number_is_rejected(monkeypatc
     monkeypatch.setenv(tm_configs.EXTRACT_BATCH_ENV, value)
     with pytest.raises(tm_configs.TaskingManagerError, match=tm_configs.EXTRACT_BATCH_ENV):
         tm_configs.extract_batch_size()
+
+
+def test_pruning_leaves_files_it_did_not_generate(tmp_path):
+    for name in ("_partial.yaml", "NPL-FL-2026-a.yaml"):
+        (tmp_path / name).write_text("key: value\n", encoding="utf-8")
+    tm_configs.sync(tmp_path, {"1.yaml": build(1)}, dry_run=False, prune=True)
+    assert (tmp_path / "_partial.yaml").exists()
+    assert (tmp_path / "NPL-FL-2026-a.yaml").exists()
+
+
+def test_a_run_for_named_projects_keeps_the_other_configs(tmp_path, monkeypatch):
+    tm_configs.sync(tmp_path, {"2.yaml": build(2)}, dry_run=False)
+    monkeypatch.setattr("sys.argv", ["tm_configs", "--project", "1", "--out", str(tmp_path)])
+    monkeypatch.setattr(tm_configs, "fetch_project", lambda project_id, timeout: feature(1, [2]))
+    assert tm_configs.main() == 0
+    assert (tmp_path / "1.yaml").exists()
+    assert (tmp_path / "2.yaml").exists()

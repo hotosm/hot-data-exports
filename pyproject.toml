@@ -1,12 +1,12 @@
 [project]
-name = "hotosm-country-exports"
+name = "hot-data-exports"
 version = "0.0.1"
-description = "HOT OSM country-scale HDX exports."
-requires-python = ">=3.11"
+description = "HOT's OpenStreetMap exports for countries, disaster events and Tasking Manager projects."
+requires-python = ">=3.13"
 dependencies = [
     "botocore>=1.43.9",
     "hdx-python-api>=6.6.7",
-    "oex>=0.4.34",
+    "oex>=0.4.36",
     "omegaconf>=2.3.0",
     "psutil>=7.2.2",
     "pyyaml>=6.0.2",
@@ -15,16 +15,22 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=9.1.1", "ruff>=0.13", "ty>=0.0.78"]
+dev = [
+    "commitizen>=4.20.1",
+    "pre-commit>=4.7.0",
+    "pytest>=9.1.1",
+    "ruff>=0.13",
+    "ty>=0.0.78",
+]
 docs = ["zensical>=0.0.71"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 src = [".", "scripts"]
 
 [tool.ruff.lint]
-extend-select = ["I", "E501"]
+select = ["E", "F", "I", "B", "UP"]
 
 [tool.pytest.ini_options]
 pythonpath = ["scripts"]
@@ -32,6 +38,9 @@ pythonpath = ["scripts"]
 [tool.ty.environment]
 # The scripts import one another by module name, as pytest's pythonpath does for the tests.
 extra-paths = ["scripts"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
 
 [tool.uv]
 package = false

@@ -1,9 +1,9 @@
-# HOT country exports
+# HOT data exports
 
 The Humanitarian OpenStreetMap Team (HOT) publishes OpenStreetMap data for every country as
 ready-to-use GIS layers: buildings, roads, waterways, health and education facilities, and
-more. Most countries are rebuilt monthly, as set out in [Schedule groups and frequencies](reference/schedule.md),
-and every layer is published on HDX and in a STAC catalog.
+more. Most countries are [rebuilt monthly](reference/schedule.md). Every layer is published on
+HDX and in a STAC catalog.
 
 | Where | What it is for |
 | --- | --- |
@@ -24,14 +24,15 @@ was last updated on HDX and when the next update is due.
 
 ## Reference
 
-- [Layers, formats and columns](reference/contents.md): layers, formats, columns and file names.
-- [Schedule groups and frequencies](reference/schedule.md): which countries are updated, and how often.
+- [Layers, formats and columns](reference/contents.md)
+- [Schedule groups and frequencies](reference/schedule.md)
 
 ## Maintain the exports
 
 - [Edit a country](maintain/edit-a-country.md)
 - [Add an event](maintain/add-an-event.md)
 - [Run and operate](maintain/operate.md)
+- [Deploy](maintain/deploy.md)
 
 The exports are built by [oex](https://github.com/osgeonepal/oex). This repository holds
 the configuration, the schedule and the scripts that run it.

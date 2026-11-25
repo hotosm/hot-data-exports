@@ -37,7 +37,6 @@ def run(monkeypatch, path, extra=()):
 
 
 def test_a_config_without_a_buffer_is_refused(tmp_path, monkeypatch):
-    """Without a buffer this geometry is the AOI, which oex already publishes."""
     assert run(monkeypatch, write_config(tmp_path, 0), ["--dry-run"]) == 2
 
 
@@ -48,3 +47,20 @@ def test_a_dry_run_publishes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(psg, "attach_geojson", fail)
     monkeypatch.setattr(psg, "configure", fail)
     assert run(monkeypatch, write_config(tmp_path, 200), ["--dry-run"]) == 0
+
+
+def test_a_geometry_kept_in_a_file_is_measured(tmp_path, monkeypatch, capsys):
+    area = tmp_path / "area.geojson"
+    area.write_text(SQUARE, encoding="utf-8")
+    path = tmp_path / "c.yaml"
+    path.write_text(CONFIG.format(geom=area, buffer=200), encoding="utf-8")
+    assert run(monkeypatch, path, ["--dry-run"]) == 0
+    assert "12308.78 sq km" in capsys.readouterr().out
+
+
+def test_a_geometry_that_is_not_polygons_is_refused_with_a_message(tmp_path, monkeypatch, capsys):
+    point = json.dumps({"type": "Point", "coordinates": [0, 0]})
+    path = tmp_path / "c.yaml"
+    path.write_text(CONFIG.format(geom=point, buffer=200), encoding="utf-8")
+    assert run(monkeypatch, path, ["--dry-run"]) == 2
+    assert "only polygons" in capsys.readouterr().err

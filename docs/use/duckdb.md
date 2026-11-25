@@ -52,8 +52,7 @@ WHERE bbox.xmin >= 85.30 AND bbox.xmax <= 85.34
   AND bbox.ymin >= 27.69 AND bbox.ymax <= 27.72;
 ```
 
-This box covers central Kathmandu and returns about 47,000 buildings out of more than
-eight million in Nepal. The condition keeps features that lie entirely inside the box. To
+This box covers central Kathmandu. The condition keeps features that lie entirely inside the box. To
 also keep features that cross its edge, test for overlap:
 
 ```sql

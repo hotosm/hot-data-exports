@@ -3,11 +3,14 @@
 iso3: NPL
 key: hdx_dev_test_demo
 frequency: daily
+expires: 2026-11-21
 
 boundary:
   geom: '{"type":"Polygon","coordinates":[[[83.95,28.18],[84.02,28.18],[84.02,28.25],[83.95,28.25],[83.95,28.18]]]}'
 
 output:
+  stac:
+    title: TEST HOT exports demo
   s3:
     prefix: hdx-dev-test
     folder: NPL_DEMO_POKHARA
@@ -17,13 +20,9 @@ source:
     enabled: false
   osm:
     enabled: true
-    engine: postpass
-    fallback_engine: rawdata
-
 hdx:
   site: stage
   time_period_start: "2026-11-18"
-  combine: true
   combined:
     name: hdx_dev_test_demo_flood_npl_pokhara
     title: TEST Demo Flood, Pokhara, Nepal
@@ -38,127 +37,127 @@ hdx:
       Demonstration data on the HDX staging site. Do not use for response decisions.
 
 categories:
-  - name: buildings
-    boundary_resolution: geos
-    hdx:
-      title: Buildings
-      summary: Building footprints, with a status column that marks damaged and destroyed buildings.
-      notes: |
-        Building footprints in the demo area. `status` is Standing, Damaged or Destroyed, read from the OpenStreetMap damage tags, so mapped damage shows up in the next export.
-      tags: [facilities-infrastructure, geodata]
-      license: hdx-odc-odbl
-      license_url: https://opendatacommons.org/licenses/odbl/1-0/
-      caveats: OpenStreetMap data is crowd sourced and cannot be considered to be exhaustive
-      dataset_source: OpenStreetMap contributors
-    osm:
-      enabled: true
+- name: buildings
+  boundary_resolution: geos
+  hdx:
+    title: Buildings
+    summary: Building footprints, with a status column that marks damaged and destroyed buildings.
+    notes: |
+      Building footprints in the demo area. `status` is Standing, Damaged or Destroyed, read from the OpenStreetMap damage tags, so mapped damage shows up in the next export.
+    tags: [facilities-infrastructure, geodata]
+    license: hdx-odc-odbl
+    license_url: https://opendatacommons.org/licenses/odbl/1-0/
+    caveats: OpenStreetMap data is crowd sourced and cannot be considered to be exhaustive
+    dataset_source: OpenStreetMap contributors
+  osm:
+    enabled: true
       # Destroyed buildings lose the plain `building` tag, so the damage keys are matched too.
-      filter:
-        building: true
-        destroyed:building: true
-        damaged:building: true
-      select:
-        - feature_id AS id
-        - tags['name'] AS name
-        - "CASE WHEN tags['destroyed:building'] IS NOT NULL THEN 'Destroyed' WHEN tags['damaged:building'] IS NOT NULL THEN 'Damaged' ELSE 'Standing' END AS status"
-        - "coalesce(tags['building'], tags['destroyed:building'], tags['damaged:building']) AS building"
-        - tags['building:levels'] AS building_levels
-        - tags['addr:street'] AS addr_street
+    filter:
+      building: true
+      destroyed:building: true
+      damaged:building: true
+    select:
+    - feature_id AS id
+    - tags['name'] AS name
+    - "CASE WHEN tags['destroyed:building'] IS NOT NULL THEN 'Destroyed' WHEN tags['damaged:building'] IS NOT NULL THEN 'Damaged' ELSE 'Standing' END AS status"
+    - "coalesce(tags['building'], tags['destroyed:building'], tags['damaged:building']) AS building"
+    - tags['building:levels'] AS building_levels
+    - tags['addr:street'] AS addr_street
 
-  - name: roads
-    hdx:
-      title: Roads
-      summary: Road and path network, as lines.
-      notes: |
-        Roads and paths in the demo area. Points such as crossings are left out, and `name_latin` gives a Latin-script name for every named road.
-      tags: [roads, transportation, geodata]
-      license: hdx-odc-odbl
-      license_url: https://opendatacommons.org/licenses/odbl/1-0/
-      caveats: OpenStreetMap data is crowd sourced and cannot be considered to be exhaustive
-      dataset_source: OpenStreetMap contributors
-    osm:
-      enabled: true
-      filter:
-        highway: true
-      select:
-        - feature_id AS id
-        - tags['name'] AS name
-        - tags['name:en'] AS name_en
-        - tags['highway'] AS highway
-        - tags['surface'] AS surface
-        - tags['bridge'] AS bridge
-      where: ["ST_GeometryType(geometry) IN ('LINESTRING', 'MULTILINESTRING')"]
-    transliterate:
-      - target: name_latin
-        source: name
-        prefer: name_en
+- name: roads
+  hdx:
+    title: Roads
+    summary: Road and path network, as lines.
+    notes: |
+      Roads and paths in the demo area. Points such as crossings are left out, and `name_latin` gives a Latin-script name for every named road.
+    tags: [roads, transportation, geodata]
+    license: hdx-odc-odbl
+    license_url: https://opendatacommons.org/licenses/odbl/1-0/
+    caveats: OpenStreetMap data is crowd sourced and cannot be considered to be exhaustive
+    dataset_source: OpenStreetMap contributors
+  osm:
+    enabled: true
+    filter:
+      highway: true
+    select:
+    - feature_id AS id
+    - tags['name'] AS name
+    - tags['name:en'] AS name_en
+    - tags['highway'] AS highway
+    - tags['surface'] AS surface
+    - tags['bridge'] AS bridge
+    where: ["ST_GeometryType(geometry) IN ('LINESTRING', 'MULTILINESTRING')"]
+  transliterate:
+  - target: name_latin
+    source: name
+    prefer: name_en
 
-  - name: health_facilities
-    hdx:
-      title: Health Facilities
-      summary: Hospitals, clinics, doctors and pharmacies.
-      notes: |
-        Health facilities in the demo area, tagged through `amenity` or `healthcare`.
-      tags: [health, health facilities, geodata]
-      license: hdx-odc-odbl
-      license_url: https://opendatacommons.org/licenses/odbl/1-0/
-      caveats: OpenStreetMap data is crowd sourced and cannot be considered to be exhaustive
-      dataset_source: OpenStreetMap contributors
-    osm:
-      enabled: true
-      filter:
-        healthcare: true
-        amenity: [hospital, clinic, doctors, pharmacy]
-      select:
-        - feature_id AS id
-        - tags['name'] AS name
-        - tags['amenity'] AS amenity
-        - tags['healthcare'] AS healthcare
-        - tags['emergency'] AS emergency
-        - tags['beds'] AS beds
+- name: health_facilities
+  hdx:
+    title: Health Facilities
+    summary: Hospitals, clinics, doctors and pharmacies.
+    notes: |
+      Health facilities in the demo area, tagged through `amenity` or `healthcare`.
+    tags: [health, health facilities, geodata]
+    license: hdx-odc-odbl
+    license_url: https://opendatacommons.org/licenses/odbl/1-0/
+    caveats: OpenStreetMap data is crowd sourced and cannot be considered to be exhaustive
+    dataset_source: OpenStreetMap contributors
+  osm:
+    enabled: true
+    filter:
+      healthcare: true
+      amenity: [hospital, clinic, doctors, pharmacy]
+    select:
+    - feature_id AS id
+    - tags['name'] AS name
+    - tags['amenity'] AS amenity
+    - tags['healthcare'] AS healthcare
+    - tags['emergency'] AS emergency
+    - tags['beds'] AS beds
 
-  - name: shelters
-    hdx:
-      title: Shelters and Assembly Points
-      summary: Emergency shelters, social shelters and evacuation assembly points.
-      notes: |
-        Places people go in an emergency: shelters and evacuation assembly points.
-      tags: [shelter, geodata]
-      license: hdx-odc-odbl
-      license_url: https://opendatacommons.org/licenses/odbl/1-0/
-      caveats: OpenStreetMap data is crowd sourced and cannot be considered to be exhaustive
-      dataset_source: OpenStreetMap contributors
-    osm:
-      enabled: true
-      filter:
-        emergency: [assembly_point, shelter]
-        social_facility: [shelter]
-      select:
-        - feature_id AS id
-        - tags['name'] AS name
-        - "coalesce(tags['emergency'], tags['social_facility']) AS kind"
-        - tags['shelter_type'] AS shelter_type
-        - tags['capacity'] AS capacity
+- name: shelters
+  hdx:
+    title: Shelters and Assembly Points
+    summary: Emergency shelters, social shelters and evacuation assembly points.
+    notes: |
+      Places people go in an emergency: shelters and evacuation assembly points.
+    tags: [shelter, geodata]
+    license: hdx-odc-odbl
+    license_url: https://opendatacommons.org/licenses/odbl/1-0/
+    caveats: OpenStreetMap data is crowd sourced and cannot be considered to be exhaustive
+    dataset_source: OpenStreetMap contributors
+  osm:
+    enabled: true
+    filter:
+      emergency: [assembly_point, shelter]
+      social_facility: [shelter]
+    select:
+    - feature_id AS id
+    - tags['name'] AS name
+    - "coalesce(tags['emergency'], tags['social_facility']) AS kind"
+    - tags['shelter_type'] AS shelter_type
+    - tags['capacity'] AS capacity
 
-  - name: water_points
-    hdx:
-      title: Water Points
-      summary: Drinking water taps, wells and water points.
-      notes: |
-        Places to get water: drinking water taps, wells and water points.
-      tags: [water sanitation and hygiene-wash, geodata]
-      license: hdx-odc-odbl
-      license_url: https://opendatacommons.org/licenses/odbl/1-0/
-      caveats: OpenStreetMap data is crowd sourced and cannot be considered to be exhaustive
-      dataset_source: OpenStreetMap contributors
-    osm:
-      enabled: true
-      filter:
-        amenity: [drinking_water, water_point]
-        man_made: [water_well, water_tap]
-      select:
-        - feature_id AS id
-        - tags['name'] AS name
-        - "coalesce(tags['amenity'], tags['man_made']) AS kind"
-        - tags['drinking_water'] AS drinking_water
-        - tags['pump'] AS pump
+- name: water_points
+  hdx:
+    title: Water Points
+    summary: Drinking water taps, wells and water points.
+    notes: |
+      Places to get water: drinking water taps, wells and water points.
+    tags: [water sanitation and hygiene-wash, geodata]
+    license: hdx-odc-odbl
+    license_url: https://opendatacommons.org/licenses/odbl/1-0/
+    caveats: OpenStreetMap data is crowd sourced and cannot be considered to be exhaustive
+    dataset_source: OpenStreetMap contributors
+  osm:
+    enabled: true
+    filter:
+      amenity: [drinking_water, water_point]
+      man_made: [water_well, water_tap]
+    select:
+    - feature_id AS id
+    - tags['name'] AS name
+    - "coalesce(tags['amenity'], tags['man_made']) AS kind"
+    - tags['drinking_water'] AS drinking_water
+    - tags['pump'] AS pump

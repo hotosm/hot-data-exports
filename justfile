@@ -6,33 +6,28 @@ default:
     @just --list
 
 setup:
-    uv sync
+    uv sync --all-groups
+    uv run pre-commit install --install-hooks --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
 
 lint:
-    uv run ruff check --fix .
-    uv run ruff format .
-    uv run ty check .
+    uv run pre-commit run --all-files
 
-test:
-    uv run pytest tests/
+test *ARGS:
+    uv run pytest tests/ "$@"
 
 # Serve the documentation site locally with live reload.
 docs:
     uv run --isolated --only-group docs zensical serve
 
-# Run a single country end-to-end with the current config, without pushing to HDX.
-one ISO3:
-    uv run oex-cli osm --config configs/base.yaml --iso3 {{ISO3}} --no-hdx-push
-
-# Run scripts/schedule.yaml. Pushes to HDX. Takes --due, --group, --frequency, --dry-run.
+# Run scripts/schedule.yaml; pushes to HDX. See just sweep --help.
 sweep *ARGS:
     ./scripts/sweep.py "$@"
 
-# Run every due job. Run once a day.
-daily:
-    ./scripts/sweep.py --due
+# Load every config the schedule names, as oex would, running nothing.
+check:
+    ./scripts/sweep.py --check
 
-# Regenerate Tasking Manager configs from the active-projects API, writing no exports.
+# Regenerate Tasking Manager configs from the active-projects API without exporting.
 tm-configs *ARGS:
     ./scripts/tm_configs.py "$@"
 
@@ -46,10 +41,6 @@ tm-sandbox:
     ./scripts/tm_configs.py --sandbox --extract
     ./scripts/sweep.py --group tasking_manager_sandbox --frequency "as needed"
 
-# Publish every campaign in configs/tm_campaigns.yaml to HDX. Takes --dry-run.
-tm-boundaries *ARGS:
-    ./scripts/tm_campaign_boundaries.py --campaigns-file configs/tm_campaigns.yaml "$@"
-
-# Publish the geometry a buffered extraction boundary was derived from.
+# Publish to HDX the geometry a buffered boundary was widened from.
 source-geometry CONFIG NAME *ARGS:
     ./scripts/publish_source_geometry.py --config "$1" --name "$2" "${@:3}"

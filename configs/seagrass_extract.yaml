@@ -1,8 +1,5 @@
 # Template for seagrass mapping projects, passed to scripts/tm_configs.py with --template.
-#
-# Seagrass is mapped as `seamark:type=seagrass`, which none of the Tasking Manager
-# mapping types point at, so the default template exports nothing for these projects.
-# The single category here replaces the mapping-type selection via --categories Seagrass.
+# Seagrass is tagged seamark:type=seagrass, which no mapping type selects, so this replaces them.
 
 key: ""
 subnational: true
@@ -23,8 +20,8 @@ output:
     enabled: true
     bucket: ${oc.env:OEX_S3_BUCKET}
     prefix: TM
-    region: us-east-1
-    acl: public-read
+    region: ${oc.env:OEX_S3_REGION,us-east-1}
+    acl: ${oc.env:OEX_S3_ACL,public-read}
     nest_by_category: true
     nest_by_geometry: true
     name_include_source: false

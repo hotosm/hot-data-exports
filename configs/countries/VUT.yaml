@@ -1,7 +1,4 @@
-# VUT: Geofabrik's index tags american-oceania, tokelau, wallis-et-futuna and
-# polynesie-francaise with Vanuatu's country code, so the country lookup returns
-# a Pacific extract that does not contain Vanuatu and every category exports empty.
-# The planet engine sidesteps the bad index entry.
+# Geofabrik's index maps VUT to a Pacific extract without Vanuatu, so read the planet.
 source:
   osm:
     engine: planet

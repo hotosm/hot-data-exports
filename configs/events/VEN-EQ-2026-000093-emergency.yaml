@@ -1,10 +1,8 @@
-# Event capture: Venezuela M 7.5 Earthquake response (GLIDE EQ-2026-000093-VEN).
+# Event: Venezuela M 7.5 Earthquake response (GLIDE EQ-2026-000093-VEN).
 # Overture emergency facilities (places theme), Caracas-area box (67.09W-66.65W, 10.28N-10.64N).
-# Standalone config: merges over oex bundled defaults, not configs/base.yaml.
 
 iso3: VEN
 key: hot_overture
-subnational: false
 frequency: as needed
 
 boundary:
@@ -14,87 +12,65 @@ boundary:
 output:
   pmtiles:
     enabled: false
-  zip_formats: null
+  zip_formats:
   stac:
     catalog: false
-  dir: ${oc.env:OEX_DATA_DIR,.}/output
-  formats: [gpkg, kml, shp]
-  metadata: true
   resume: true
-  report:
-    enabled: true
   s3:
-    enabled: true
-    bucket: ${oc.env:OEX_S3_BUCKET}
-    prefix: ISO3
-    region: us-east-1
-    acl: public-read
-
+    folder: ''
 parallel:
-  enabled: true
   threads: 2
   memory_gb: 7
 
 source:
   overture:
     enabled: true
-    release: latest
   osm:
     enabled: false
-  pcodes:
-    enabled: true
-
 hdx:
-  push: true
-  site: prod
-  api_key: ${oc.env:HDX_API_KEY}
-  owner_org: ${oc.env:HDX_OWNER_ORG}
-  maintainer: ${oc.env:HDX_MAINTAINER}
-  user_agent: osm-country-exports/0.1
-  methodology: Other
+  combine: false
   methodology_other: Open Source Geographic information
-  purge_existing_resources: false
   title_template: "{category} - Venezuela Caracas (Overture)"
 
 categories:
-  - name: emergency_facilities
-    skip_pcodes: false
-    hdx:
-      title: Emergency Facilities
-      notes: |
-        Emergency and essential-health facilities for the Caracas area of Venezuela
-        (bounding box 67.09W-66.65W, 10.28N-10.64N), captured for the M 7.5 earthquake response.
+- name: emergency_facilities
+  skip_pcodes: false
+  hdx:
+    title: Emergency Facilities
+    notes: |
+      Emergency and essential-health facilities for the Caracas area of Venezuela
+      (bounding box 67.09W-66.65W, 10.28N-10.64N), captured for the M 7.5 earthquake response.
 
-        Includes hospitals, emergency rooms, medical centres, pharmacies, fire, police, and ambulance/EMS services.
+      Includes hospitals, emergency rooms, medical centres, pharmacies, fire, police, and ambulance/EMS services.
 
-        Sourced from the Overture Maps places theme (Meta, Foursquare, Microsoft, AllThePlaces). This data is not from OpenStreetMap and complements the OSM-based exports.
+      Sourced from the Overture Maps places theme (Meta, Foursquare, Microsoft, AllThePlaces). This data is not from OpenStreetMap and complements the OSM-based exports.
 
-        Event: M 7.5 Earthquake, west of Caracas.
+      Event: M 7.5 Earthquake, west of Caracas.
 
-        - Source: [Overture Maps](https://overturemaps.org/)
-        - Part of HOT disaster response exports on HDX by [HOT](https://www.hotosm.org/)
-      tags: [earthquake-tsunami, facilities-infrastructure, geodata]
-      license: Community Data License Agreement - Permissive 2.0
-      license_url: https://docs.overturemaps.org/attribution/
-      caveats: |
-        Data is sourced directly from Overture places (commercial and crowd sources: Meta, Foursquare, Microsoft); records are not verified and per-feature confidence varies. Verify before operational use and check Overture's usage guidelines.
-      dataset_source: Overture Maps (places theme)
-    overture:
-      enabled: true
-      theme: places
-      feature_type: place
-      select:
-        - id
-        - names.primary AS name
-        - taxonomy.primary AS category
-        - round(confidence, 2) AS confidence
-        - phones[1] AS phone
-        - websites[1] AS website
-        - addresses[1].freeform AS address
-        - addresses[1].locality AS locality
-        - sources[1].dataset AS source
-      where:
-        - >-
-          list_has_any(taxonomy.hierarchy, ['hospital','emergency_or_urgent_care_facility','fire_station','fire_protection_service','police_station','doctors_office','pharmacy_and_drug_store','health_department','behavioral_or_mental_health_clinic','primary_care_or_general_clinic']) OR taxonomy.primary IN ('health_care','outpatient_care_facility')
-    osm:
-      enabled: false
+      - Source: [Overture Maps](https://overturemaps.org/)
+      - Part of HOT disaster response exports on HDX by [HOT](https://www.hotosm.org/)
+    tags: [earthquake-tsunami, facilities-infrastructure, geodata]
+    license: Community Data License Agreement - Permissive 2.0
+    license_url: https://docs.overturemaps.org/attribution/
+    caveats: |
+      Data is sourced directly from Overture places (commercial and crowd sources: Meta, Foursquare, Microsoft); records are not verified and per-feature confidence varies. Verify before operational use and check Overture's usage guidelines.
+    dataset_source: Overture Maps (places theme)
+  overture:
+    enabled: true
+    theme: places
+    feature_type: place
+    select:
+    - id
+    - names.primary AS name
+    - taxonomy.primary AS category
+    - round(confidence, 2) AS confidence
+    - phones[1] AS phone
+    - websites[1] AS website
+    - addresses[1].freeform AS address
+    - addresses[1].locality AS locality
+    - sources[1].dataset AS source
+    where:
+    - >-
+      list_has_any(taxonomy.hierarchy, ['hospital','emergency_or_urgent_care_facility','fire_station','fire_protection_service','police_station','doctors_office','pharmacy_and_drug_store','health_department','behavioral_or_mental_health_clinic','primary_care_or_general_clinic']) OR taxonomy.primary IN ('health_care','outpatient_care_facility')
+  osm:
+    enabled: false

@@ -1,22 +1,4 @@
-# What runs, and when. Priority is the HDX Data Grid locations; high-income countries
-# refresh quarterly and the largest countries yearly.
-#
-# groups:  run order. Position in the list is priority.
-#
-# A group sets one frequency for everything in it, and holds one job source:
-#   countries:  a list of ISO3 codes. Config is configs/countries/<ISO3>.yaml merged
-#               over configs/base.yaml, or configs/base.yaml alone.
-#   dir:        a folder of standalone configs, one job per file. Each config's own
-#               `frequency:` wins over the group's.
-#   workers:    country exports at once in this group (default 1). Each gets an equal
-#               share of the memory.
-#
-# One country can still differ from its group: write the countries as a mapping, for
-# example {PAK: weekly, NPL: null}, or {SDN: {expires: 2026-12-31}}.
-#
-# `sweep.py --due` runs every job whose last success is older than its frequency.
-# `frequency: as needed` never runs on a schedule; run those by hand with
-# --frequency "as needed". An expired or disabled job is skipped and says so.
+# What runs and when: https://hotosm.github.io/hot-data-exports/reference/schedule/
 
 groups: [priority, normal, high_income, big, minimal, events, tasking_manager, tasking_manager_sandbox]
 
@@ -78,15 +60,10 @@ events:
   dir: configs/events
   base: configs/_event-base.yaml
   frequency: monthly
-  # Per-file overrides, keyed by filename. A frequency here only decides when the job
-  # runs; what HDX advertises comes from the config's own `frequency:`.
-  overrides:
-    # VEN-EQ-2026-000093.yaml: {frequency: daily, expires: 2026-09-30}
-    # VEN-EQ-2026-000093-osm.yaml: {enabled: false}
-    DEMO-FL-2026-pokhara.yaml: {expires: 2026-11-21}
+  # Keyed by filename; a frequency here decides when a file runs, not what HDX shows.
+  overrides: {}
 
-# Tasking Manager projects. Both dirs are filled by scripts/tm_configs.py before
-# the sweep runs; the configs themselves are generated, not committed.
+# Tasking Manager configs are generated into these folders by scripts/tm_configs.py.
 
 tasking_manager:
   enabled: true

@@ -1,22 +1,15 @@
-# Copy to configs/events/<ISO3>-<hazard>-<year>-<name>.yaml and replace every value below.
+# Copy to configs/events/<ISO3>-<hazard>-<year>-<name>.yaml; see docs/maintain/add-an-event.md.
 
-iso3: NPL
-key: hot_flood_example
 frequency: daily
+expires: 2026-12-31
 
 boundary:
-  geom: '{"type":"Polygon","coordinates":[[[84.0,27.0],[84.1,27.0],[84.1,27.1],[84.0,27.1],[84.0,27.0]]]}'
-
-output:
-  s3:
-    folder: NPL_FLOOD_EXAMPLE
+  geom: 'CHANGE_ME'
 
 hdx:
   time_period_start: "2026-01-01"
-  combine: true
   combined:
-    name: hot_flood_npl_example
-    title: Nepal Flood 2026, Example Area
+    title: CHANGE_ME
     source: OpenStreetMap contributors
     tags: [flooding, affected area, geodata]
     notes: |

@@ -1,7 +1,6 @@
 # Merged under every file in configs/events/; a value set in the event file wins.
 
-subnational: false
-
+key: hotosm_event
 output:
   stac:
     catalog: true
@@ -12,8 +11,7 @@ output:
     group_title: Activations
   dir: ${oc.env:OEX_DATA_DIR,.}/output
   formats: [gpkg, kml, shp]
-  # Only these are zipped. GeoJSON publishes as a bare file so it can be fetched straight
-  # from its URL; a shapefile is always zipped.
+  # oex always zips shp; GeoJSON from a category stays unzipped so it can be fetched from its URL.
   zip_formats: [gpkg, kml]
   metadata: true
   report:
@@ -26,15 +24,10 @@ output:
     enabled: true
     bucket: ${oc.env:OEX_S3_BUCKET}
     prefix: ISO3
-    region: us-east-1
-    acl: public-read
-
-parallel:
-  enabled: true
+    region: ${oc.env:OEX_S3_REGION,us-east-1}
+    acl: ${oc.env:OEX_S3_ACL,public-read}
 
 source:
-  overture:
-    release: latest
   osm:
     engine: postpass
     fallback_engine: rawdata
@@ -46,11 +39,11 @@ source:
 hdx:
   push: true
   site: prod
+  combine: true
   api_key: ${oc.env:HDX_API_KEY}
   owner_org: ${oc.env:HDX_OWNER_ORG}
   maintainer: ${oc.env:HDX_MAINTAINER}
   user_agent: osm-country-exports/0.1
-  methodology: Other
-  methodology_other: Open Source Geographic information
+  methodology_other: Crowdsourced disaster mapping
   # The Overture run must keep what the OSM run put on the combined dataset.
   purge_existing_resources: false

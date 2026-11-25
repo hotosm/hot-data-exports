@@ -5,6 +5,11 @@ import os
 import tempfile
 from pathlib import Path
 
+from hdx.api.configuration import Configuration
+from hdx.data.dataset import Dataset
+from hdx.data.resource import Resource
+from oex.s3 import upload as s3_upload
+
 
 class HdxPublishError(Exception):
     """The dataset could not be found or updated."""
@@ -19,8 +24,6 @@ def _required_env(name: str) -> str:
 
 def configure(site: str, user_agent: str) -> None:
     """Once per process: hdx-python-api refuses a second Configuration.create."""
-    from hdx.api.configuration import Configuration
-
     Configuration.create(hdx_site=site, hdx_key=_required_env("HDX_API_KEY"), user_agent=user_agent)
 
 
@@ -38,10 +41,6 @@ def attach_geojson(
     acl: str,
 ) -> str:
     """The dataset is read first so a wrong name fails before anything is uploaded."""
-    from hdx.data.dataset import Dataset
-    from hdx.data.resource import Resource
-    from oex.s3 import upload as s3_upload
-
     if not bucket:
         raise HdxPublishError("no S3 bucket is configured")
     dataset = Dataset.read_from_hdx(dataset_name)

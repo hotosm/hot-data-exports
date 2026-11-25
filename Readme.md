@@ -1,119 +1,27 @@
-# osm-country-exports
+# hot-data-exports
 
-HOT OpenStreetMap country-scale HDX exports, driven by
-[`oex`](https://github.com/osgeonepal/oex). One job, one `oex-cli` invocation.
+HOT's OpenStreetMap exports for every country and disaster event, published to HDX, and for
+Tasking Manager projects, published to S3, run with [`oex`](https://github.com/osgeonepal/oex).
 
-## Layout
+The [documentation](https://hotosm.github.io/hot-data-exports/) covers using, maintaining
+and deploying the exports; [Run and operate](https://hotosm.github.io/hot-data-exports/maintain/operate/)
+covers setup. Its source is in `docs/`; preview it with `just docs`. `just --list` shows every
+recipe.
 
-`configs/base.yaml` holds the global defaults (HDX, S3, output) and `configs/_hot-schema.yaml`
-the export layers with their HDX metadata. `configs/countries/<ISO3>.yaml` overrides a country
-and is merged over the base; `configs/events/` holds event configs, each merged over `configs/_event-base.yaml`. Tasking Manager
-configs are generated per run into `configs/tasking_manager/` (and `_sandbox/`) from
-`configs/_tm-template.yaml`, and `configs/tm_campaigns.yaml` lists the campaigns whose
-project boundaries are published.
+## Develop against a local oex
 
-`scripts/schedule.yaml` says what runs and when, and `scripts/sweep.py` runs it as `oex-cli`
-jobs. `scripts/tm_configs.py` generates the Tasking Manager configs,
-`scripts/tm_campaign_boundaries.py` publishes campaign boundaries, and
-`scripts/publish_source_geometry.py` publishes the geometry a buffered boundary came from.
-
-## Install
+Install it into the environment without editing `pyproject.toml`, so a deployment keeps the
+pinned release:
 
 ```bash
-just setup
-cp .env.example .env && $EDITOR .env
-```
-
-`oex` is installed from PyPI. To run against a local checkout of the library,
-install it over the top and leave `pyproject.toml` alone, so the pinned release stays
-what a deployment gets:
-
-```bash
-uv pip install -e ../path/to/overture2hdx
+uv pip install -e ../path/to/oex
 export UV_NO_SYNC=1
 ```
 
-`uv run` re-syncs from the lock file before each command, which would replace the
-editable install with the pinned release.
+`uv run` otherwise re-syncs from the lock file and replaces the editable install.
 
-## Run
+## Source geometry
 
-```bash
-set -a && source .env && set +a
-just sweep --group priority
-just sweep --frequency monthly
-just sweep --group heavy --frequency "as needed" --only USA
-just sweep --dry-run
-```
-
-`--group` and `--frequency` are both optional and combine. Omitting one means all of it.
-Jobs run in the order `groups:` declares, one at a time unless `--workers` is above 1, each
-with a timeout, and a lock stops one sweep from overlapping the next. Failed jobs are listed
-by name at the end.
-
-`--no-hdx-push` skips HDX, but the files still upload to the S3 bucket. The
-[documentation](https://hotosm.github.io/osm-country-exports/maintain/operate/) lists every
-option.
-
-## Documentation
-
-The [documentation site](https://hotosm.github.io/osm-country-exports/) covers using the
-data (HDX, the STAC catalog, QGIS, DuckDB), what the exports contain, the schedule,
-editing a country, adding an event, and running the exports. Its source is in `docs/`;
-preview it with `just docs`.
-
-## Tasking Manager projects
-
-TM project configs are generated from the API before the sweep runs. `just tm`
-regenerates the production configs and sweeps them, `just tm-sandbox` does the same for
-sandbox projects, and `just tm-configs --dry-run` reports what would change and writes nothing:
-
-```bash
-just tm
-just tm-sandbox
-just tm-configs --dry-run
-```
-
-`scripts/tm_configs.py` reads
-`/projects/queries/active/?interval=24` (the API caps the interval at 24 hours,
-and `&sandbox=true` selects sandbox projects), and writes one config per project.
-Configs are kept until removed by hand, because the API reports only what changed in the
-interval. Set `TM_API` to read a Tasking Manager other than production.
-
-A project has no country code, so its identity is the project id through
-`output.s3.folder`, which puts artifacts at
-`TM/hotosm_project_{id}/{category}/{geometry}/hotosm_project_{id}_{category}_{geometry}_{format}.zip`.
-Categories follow each project's mapping types, and each custom mapping type a project
-defines becomes a category of its own: a feature carrying any of its `key=value`
-tags (`key=*` for any value) matches, and the columns are `name`, those keys, the listed
-attributes and `source`. A `--template` replaces both.
-
-`--extract` cuts each project's PBF with osmium, `TM_EXTRACT_BATCH` projects (default 6)
-per osmium pass, and points its config at that file. Sandbox configs need it, with the newest
-export in `TM_SANDBOX_PBF` as the source.
-
-A project whose extract comes out empty is reported, because that means the
-source PBF does not cover it and the export would publish nothing.
-
-## Publishing alongside an export
-
-Two resources belong on a dataset that `oex` does not produce, so each has its own
-script and `just` recipe.
-
-`just tm-boundaries` publishes the project boundaries of a Tasking Manager campaign
-as one GeoJSON, so a dataset shows where mapping was organised and how far each task
-got. Campaigns are listed in `configs/tm_campaigns.yaml`, keyed by their exact name
-in the Tasking Manager. Add `--dry-run` to see what
-would be published.
-
-`just source-geometry CONFIG NAME` publishes the geometry a boundary was derived
-from. `oex` publishes the extraction boundary as the Area of Interest resource, so
-this matters only when `boundary.buffer_meters` widens it, and the config is refused
-without a buffer. The uploaded filename becomes the resource's public URL, so pass
+`just source-geometry CONFIG NAME` publishes to HDX the geometry a buffered event boundary
+was widened from. The uploaded filename becomes the resource's public URL, so pass
 `--file-name` to keep an existing resource at the address people already have.
-
-## Bumping the HOT schema
-
-`configs/_hot-schema.yaml` holds the layer list and the HDX metadata prose for the
-country exports. oex ships a similar example at `configs/examples/hot-schema.yaml`.
-Reconcile the two by hand when the upstream example changes.

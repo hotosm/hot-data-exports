@@ -1,12 +1,12 @@
 [project]
-site_name = "HOT country exports"
-site_url = "https://hotosm.github.io/osm-country-exports/"
+site_name = "HOT data exports"
+site_url = "https://hotosm.github.io/hot-data-exports/"
 site_description = "OpenStreetMap layers per country, published to HDX and a STAC catalog by HOT."
 site_author = "Humanitarian OpenStreetMap Team"
 copyright = "Copyright &copy; 2026 Humanitarian OpenStreetMap Team"
 
-repo_url = "https://github.com/hotosm/osm-country-exports"
-repo_name = "hotosm/osm-country-exports"
+repo_url = "https://github.com/hotosm/hot-data-exports"
+repo_name = "hotosm/hot-data-exports"
 edit_uri = "edit/main/docs/"
 
 nav = [
@@ -25,6 +25,7 @@ nav = [
     { "Edit a country" = "maintain/edit-a-country.md" },
     { "Add an event" = "maintain/add-an-event.md" },
     { "Run and operate" = "maintain/operate.md" },
+    { "Deploy" = "maintain/deploy.md" },
   ] },
 ]
 
@@ -69,7 +70,7 @@ toggle.name = "Switch to system preference"
 
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
-link = "https://github.com/hotosm/osm-country-exports"
+link = "https://github.com/hotosm/hot-data-exports"
 
 [project.markdown_extensions]
 abbr = {}

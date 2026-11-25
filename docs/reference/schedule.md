@@ -1,6 +1,6 @@
 # Schedule groups and frequencies
 
-[`scripts/schedule.yaml`](https://github.com/hotosm/osm-country-exports/blob/main/scripts/schedule.yaml)
+[`scripts/schedule.yaml`](https://github.com/hotosm/hot-data-exports/blob/main/scripts/schedule.yaml)
 says what is exported and how often. It is split into groups, run in the order the
 `groups:` list declares, and each group sets one update frequency for everything in it.
 
@@ -48,21 +48,30 @@ countries:
 ```
 
 `null` keeps the group's frequency. Disabled and expired jobs are skipped, and the sweep
-prints why.
+prints why. A config in a `dir:` group can set its own `expires:`; one in `overrides:`
+wins. A config in a `dir:` group is skipped as broken when it:
+
+- isn't valid YAML;
+- doesn't set a frequency HDX knows;
+- has an `expires:` that isn't a date;
+- has a bad file name or `CHANGE_ME` left in it;
+- holds a setting oex doesn't know, which `just check` and `just sweep --due` find.
+
+Every other job still runs, and the sweep then exits with an error.
 
 ## Frequencies
 
-The frequencies are the ones HDX uses: `daily`, `weekly`, `monthly`, `quarterly`,
-`yearly`, and `as needed`. `just sweep --due` runs every job whose last publish is older
-than its frequency, group by group in order. The last publish is the oldest `updated` time
-on the job's STAC Items, which oex sets when a layer reaches HDX. A layer missing its Item,
-such as a new category, or whose Item is undated after a failed publish, makes its job due.
-Source `.env` first, since the sweep reads every config. Jobs on `as needed` run only by
-hand, with `--frequency "as needed"`.
+The frequencies are the ones HDX uses, such as `daily`, `every 2 days`, `weekly`,
+`every two weeks`, `monthly`, `quarterly`, `yearly`, and `as needed`. `just sweep --due` runs
+every job whose last publish is older than its frequency, group by group in order. The
+last publish is the oldest `updated` time on the job's STAC Items, which oex sets when a
+layer reaches HDX. A layer missing its Item, such as a new category, or whose Item is
+undated after a failed publish, makes its job due. Jobs on `as needed` run only by hand,
+with `--frequency "as needed"`.
 
 For a country, the frequency is also the update frequency its HDX datasets show, and the
 schedule is the only place to set it. A change reaches HDX the next time the country is
-published; `scripts/sync_hdx_frequency.py --apply` updates HDX straight away. For a config
-in a `dir:` group, HDX shows the config's own `frequency:`, and a frequency in the group's
-`overrides:` only decides when it runs. A missed run shows as outdated on the
+published. For a config in a `dir:` group, HDX shows the config's own `frequency:`, or the
+group's when it sets none; a frequency in the group's `overrides:` only decides when it
+runs. A missed run shows as outdated on the
 [update status page](https://hotosm.github.io/hot2hdx-status/).

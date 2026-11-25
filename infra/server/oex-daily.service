@@ -5,11 +5,11 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=kshitij
-WorkingDirectory=/mnt/disk/osm-country-exports
-ExecStart=/mnt/disk/oex-daily.sh
+# Set User and the checkout path for this machine.
+User=oex
+ExecStart=/opt/hot-data-exports/infra/server/oex-daily.sh
 TimeoutStartSec=infinity
 # Leaves room for sshd and the system when an export runs away.
-MemoryHigh=24G
-MemoryMax=28G
+MemoryHigh=75%
+MemoryMax=87%
 MemorySwapMax=0

@@ -1,0 +1,41 @@
+name: Checks
+
+on:
+  pull_request:
+    paths: &paths
+      - "configs/**"
+      - "scripts/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/checks.yml"
+      - ".python-version"
+      - ".pre-commit-config.yaml"
+      - "justfile"
+  push:
+    branches:
+      - main
+    paths: *paths
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      OEX_S3_BUCKET: ci-placeholder
+      HDX_API_KEY: ci-placeholder
+      HDX_OWNER_ORG: ci-placeholder
+      HDX_MAINTAINER: ci-placeholder
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync ruff format --check .
+      - run: uv run --no-sync ty check .
+      - run: uv run --no-sync pytest tests/
+      - run: ./scripts/sweep.py --check

@@ -21,14 +21,14 @@ Every country has the same twelve layers. Each is one HDX dataset, named
 | `cultural_places` | Cultural Places | `tourism`, `amenity`, `historic`, `heritage` and related tags |
 
 The exact tag filters and columns of each layer are defined in
-[`configs/_hot-schema.yaml`](https://github.com/hotosm/osm-country-exports/blob/main/configs/_hot-schema.yaml).
+[`configs/_hot-schema.yaml`](https://github.com/hotosm/hot-data-exports/blob/main/configs/_hot-schema.yaml).
 
 ## Formats
 
 | Format | Buildings and roads | Other layers | Notes |
 | --- | --- | --- | --- |
 | GeoPackage | yes | yes | Zipped. |
-| Shapefile | yes | yes | Zipped. Left out when the write fails, for example past the format's 4 GB limit. |
+| Shapefile | yes | yes | Zipped. Left out when the write fails. |
 | GeoJSON | no | yes | Zipped. |
 | KML | no | yes | Zipped. |
 | GeoParquet | yes | yes | Not zipped, so tools can read it over HTTP. |
@@ -51,7 +51,7 @@ Every layer has these columns, alongside the OpenStreetMap tags it selects:
 | `name` | The `name` tag. |
 | `name_en`, `name_<local language>` | Names in English and the country's own languages, where mapped. |
 | `name_latin` | A name in Latin script: `name_en` where present, otherwise `name` transliterated. |
-| `adm0_pcode` to `adm4_pcode`, `adm0_name` to `adm4_name` | The administrative areas the feature falls in, from the [fieldmaps.io](https://fieldmaps.io/) humanitarian boundaries. A level the country has no coded boundaries for is left out. |
+| `adm0_pcode` to `adm4_pcode`, `adm0_name` to `adm4_name` | The administrative areas the feature falls in, from the [fieldmaps.io](https://fieldmaps.io/) humanitarian boundaries. A level without coded boundaries for the country is left out. |
 | `bbox` | The bounding box of the geometry (`xmin`, `ymin`, `xmax`, `ymax`), used to [filter by area](../use/duckdb.md#cut-out-one-area). GeoParquet only. |
 | `geom` | The geometry, in longitude and latitude (EPSG:4326). |
 

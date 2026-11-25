@@ -3,7 +3,6 @@
 
 iso3: NPL
 key: hot_flood
-subnational: false
 frequency: as needed
 
 boundary:
@@ -12,80 +11,33 @@ boundary:
   buffer_meters: 200
 
 output:
-  stac:
-    catalog: true
-    id: hotosm-country-exports
-    title: HOT OpenStreetMap country exports
-    description: OpenStreetMap layers per country, published to HDX by HOT.
-    group: activations
-    group_title: Activations
-  dir: ${oc.env:OEX_DATA_DIR,.}/output
-  formats: [gpkg, kml, shp]
-  # Only these are zipped. GeoJSON, which the categories file adds, publishes as a bare
-  # file so it can be fetched straight from its URL; a shapefile has to be zipped.
-  zip_formats: [gpkg, kml]
-  metadata: true
   resume: true
-  report:
-    enabled: true
-  # Past the z12 default so buildings stay legible at damage-assessment zooms.
-  pmtiles:
-    enabled: true
-    max_zoom: 15
   s3:
-    enabled: true
-    bucket: ${oc.env:OEX_S3_BUCKET}
-    prefix: ISO3
-    # Kept apart from ISO3/NPL, which the Nepal country export stages its layers under.
     folder: NPL_FLOOD
-    region: us-east-1
-    acl: public-read
-
-parallel:
-  enabled: true
-
 source:
   overture:
     enabled: true
-    release: latest
   osm:
     enabled: true
-    # Small enough to query OSM live, so layers trail the map by minutes, not a day.
-    engine: postpass
-    fallback_engine: rawdata
-    cache_dir: ${oc.env:OEX_DATA_DIR,.}/data/osm
   pcodes:
-    enabled: true
-    cache_dir: ${oc.env:OEX_DATA_DIR,.}/data/pcodes
     levels: [1, 2, 3, 4]
     # Precise path is cheap here, and h3_neighbor's border error is large next to 200 m.
     boundary_resolution: geos
 
 hdx:
-  push: true
-  site: prod
-  api_key: ${oc.env:HDX_API_KEY}
-  owner_org: ${oc.env:HDX_OWNER_ORG}
-  maintainer: ${oc.env:HDX_MAINTAINER}
-  user_agent: osm-country-exports/0.1
-  methodology: Other
   methodology_other: Open Source Geographic information
-  # The Overture run must keep what the OSM run put on the combined dataset.
-  purge_existing_resources: false
-  # First upload of this dataset to HDX.
   time_period_start: "2026-08-26"
-  combine: true
   combined:
     name: hot_flood_npl
     title: Nepal Flood 2026 Flood Affected Area, Bhote Koshi and Trishuli
     source: OpenStreetMap contributors, Overture Maps, volunteer field reports
     tags:
-      - flooding
-      - affected area
-      - damage assessment
-      - facilities-infrastructure
-      - natural disasters
-      - geodata
+    - flooding
+    - affected area
+    - damage assessment
+    - facilities-infrastructure
+    - natural disasters
+    - geodata
     notes: |
       OpenStreetMap and Overture Maps vector layers for the area flooded in the 2026 Bhote
       Koshi and Trishuli flood in Nepal, and the ground immediately around it.

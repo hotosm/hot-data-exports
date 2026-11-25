@@ -1,9 +1,9 @@
 # Edit a country
 
 Every country starts from
-[`configs/base.yaml`](https://github.com/hotosm/osm-country-exports/blob/main/configs/base.yaml),
+[`configs/base.yaml`](https://github.com/hotosm/hot-data-exports/blob/main/configs/base.yaml),
 which holds the HDX, S3 and output settings, and the layers in
-[`configs/_hot-schema.yaml`](https://github.com/hotosm/osm-country-exports/blob/main/configs/_hot-schema.yaml).
+[`configs/_hot-schema.yaml`](https://github.com/hotosm/hot-data-exports/blob/main/configs/_hot-schema.yaml).
 To change one country, add a file for it.
 
 ## Override settings for one country
@@ -20,7 +20,6 @@ Common reasons, each with a file in the repository to copy from:
     uses a different name. From `NRU.yaml`:
 
     ```yaml
-    # HDX's own name for the location; pycountry still has the former name, Nauru.
     dataset_name: Naoero
     ```
 
@@ -32,10 +31,9 @@ Common reasons, each with a file in the repository to copy from:
     area joins the export of every country it touches and of the country fieldmaps lists
     as its group (`iso_3_grp`). `XKX.yaml` uses `boundary.source: geoboundaries` because
     fieldmaps doesn't have Kosovo. An inline `boundary.geom` overrides the source, as in
-    `ATA.yaml`:
+    `ATA.yaml`, which covers the Antarctic Treaty area south of 60 degrees south:
 
     ```yaml
-    # Everything south of 60 degrees south, the Antarctic Treaty area (Article VI).
     boundary:
       geom: '{"type":"Polygon","coordinates":[[[-180,-90],[180,-90],[180,-60],[-180,-60],[-180,-90]]]}'
     ```
@@ -60,16 +58,13 @@ Common reasons, each with a file in the repository to copy from:
 
 A large country can also be given more memory with `parallel.memory_gb`.
 
-[`configs/countries/SDN.yaml.example`](https://github.com/hotosm/osm-country-exports/blob/main/configs/countries/SDN.yaml.example)
+[`configs/countries/SDN.yaml.example`](https://github.com/hotosm/hot-data-exports/blob/main/configs/countries/SDN.yaml.example)
 shows these keys together. `frequency:` cannot be set here: the schedule supplies it.
-
-To see the merged config a run used, look in `.sweep/merged/<ISO3>.yaml` after a sweep.
-Secrets in it stay as `${oc.env:...}` references, so the file is safe to read.
 
 ## Change how often a country updates
 
 Move its ISO3 code to another group in
-[`scripts/schedule.yaml`](https://github.com/hotosm/osm-country-exports/blob/main/scripts/schedule.yaml),
+[`scripts/schedule.yaml`](https://github.com/hotosm/hot-data-exports/blob/main/scripts/schedule.yaml),
 or give it its own frequency as shown in
 [Schedule groups and frequencies](../reference/schedule.md). The new frequency reaches
 HDX the next time the country is published.
@@ -81,17 +76,12 @@ Add its ISO3 code to a group in `scripts/schedule.yaml`. Add a
 
 ## Test a change
 
-Run the country through the sweep without pushing to HDX, then check the files in
-`$OEX_DATA_DIR/output/`. The sweep merges `configs/countries/<ISO3>.yaml` over `base.yaml`,
-so this tests the override. The files still upload to the S3 bucket, so the public
-GeoParquet and downloads change:
+Run the country without pushing to HDX, then check the files in `$OEX_DATA_DIR/output/`.
+The files still upload to S3, so the public GeoParquet and downloads change:
 
 ```bash
-set -a && source .env && set +a && just sweep --group normal --only NPL --no-hdx-push
+set -a && source .env && set +a
+just sweep --group normal --only NPL --no-hdx-push
 ```
 
-To publish just that country, run the same command without `--no-hdx-push`:
-
-```bash
-set -a && source .env && set +a && just sweep --group normal --only NPL
-```
+Leave out `--no-hdx-push` to publish that country.
