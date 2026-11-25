@@ -20,7 +20,7 @@ output:
     enabled: false
   s3:
     enabled: true
-    bucket: ${oc.env:OEX_S3_BUCKET}
+    bucket: ${oc.env:OEX_S3_BUCKET,""}
     prefix: TM
     region: ${oc.env:OEX_S3_REGION,us-east-1}
     acl: ${oc.env:OEX_S3_ACL,public-read}

@@ -22,7 +22,7 @@ output:
     max_zoom: 15
   s3:
     enabled: true
-    bucket: ${oc.env:OEX_S3_BUCKET}
+    bucket: ${oc.env:OEX_S3_BUCKET,""}
     prefix: ISO3
     region: ${oc.env:OEX_S3_REGION,us-east-1}
     acl: ${oc.env:OEX_S3_ACL,public-read}
@@ -40,9 +40,8 @@ hdx:
   push: true
   site: prod
   combine: true
-  api_key: ${oc.env:HDX_API_KEY}
-  owner_org: ${oc.env:HDX_OWNER_ORG}
-  maintainer: ${oc.env:HDX_MAINTAINER}
+  owner_org: ${oc.env:HDX_OWNER_ORG,null}
+  maintainer: ${oc.env:HDX_MAINTAINER,null}
   user_agent: osm-country-exports/0.1
   methodology_other: Crowdsourced disaster mapping
   # The Overture run must keep what the OSM run put on the combined dataset.

@@ -29,7 +29,7 @@ output:
     description: OpenStreetMap layers per country, published to HDX by HOT.
   s3:
     enabled: true
-    bucket: ${oc.env:OEX_S3_BUCKET}
+    bucket: ${oc.env:OEX_S3_BUCKET,""}
     prefix: ISO3
     region: ${oc.env:OEX_S3_REGION,us-east-1}
     acl: ${oc.env:OEX_S3_ACL,public-read}
@@ -37,9 +37,8 @@ output:
 hdx:
   push: true
   site: prod
-  api_key: ${oc.env:HDX_API_KEY}
-  owner_org: ${oc.env:HDX_OWNER_ORG}
-  maintainer: ${oc.env:HDX_MAINTAINER}
+  owner_org: ${oc.env:HDX_OWNER_ORG,null}
+  maintainer: ${oc.env:HDX_MAINTAINER,null}
   user_agent: osm-country-exports/0.1
   purge_existing_resources: false
 

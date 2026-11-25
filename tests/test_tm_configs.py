@@ -193,8 +193,7 @@ def test_a_custom_type_lands_in_the_folder_the_tm_frontend_requests():
     assert slugify(cfg.categories[-1].name) == "water_points"
 
 
-def test_a_custom_type_loads_as_an_oex_category(tmp_path, monkeypatch):
-    monkeypatch.setenv("OEX_S3_BUCKET", "bucket")
+def test_a_custom_type_loads_as_an_oex_category(tmp_path):
     tm_configs.sync(tmp_path, {"1.yaml": build(1, custom=[SEAGRASS])}, dry_run=False)
     cfg = load_config(tmp_path / "1.yaml")
     assert [c.name for c in cfg.categories] == ["Buildings", "Seagrass"]
@@ -212,8 +211,7 @@ def test_the_seagrass_template_reads_the_planet_the_countries_read():
     )
 
 
-def test_a_config_without_an_extract_keeps_the_template_live_engine(tmp_path, monkeypatch):
-    monkeypatch.setenv("OEX_S3_BUCKET", "exports")
+def test_a_config_without_an_extract_keeps_the_template_live_engine(tmp_path):
     path = tmp_path / "4242.yaml"
     path.write_text(OmegaConf.to_yaml(build(), resolve=False), encoding="utf-8")
     osm = cast(OsmSourceConfig, load_config(path).source["osm"])
@@ -292,7 +290,6 @@ def test_a_config_on_its_own_extract_reads_it_and_never_downloads_the_planet(tmp
 
 @pytest.fixture
 def planet_refreshes(monkeypatch, tmp_path):
-    monkeypatch.setenv("OEX_S3_BUCKET", "exports")
     monkeypatch.setenv("OEX_DATA_DIR", str(tmp_path))
     monkeypatch.setenv(tm_configs.SANDBOX_PBF_ENV, "s3://sandbox/exports/")
     calls = []

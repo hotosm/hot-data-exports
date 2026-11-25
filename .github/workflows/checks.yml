@@ -23,11 +23,6 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    env:
-      OEX_S3_BUCKET: ci-placeholder
-      HDX_API_KEY: ci-placeholder
-      HDX_OWNER_ORG: ci-placeholder
-      HDX_MAINTAINER: ci-placeholder
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0

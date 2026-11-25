@@ -393,13 +393,12 @@ def test_a_country_override_is_merged_over_base_not_substituted(tmp_path, monkey
     assert merged["dataset_name"] == "Sudan"
     assert merged["hdx"]["push"] == base["hdx"]["push"]
     assert merged["categories_file"] == base["categories_file"]
-    assert "${oc.env:HDX_API_KEY}" in merged["hdx"]["api_key"]
     assert merged["frequency"] == "weekly"
 
 
-def test_a_merged_country_config_loads_the_same_way_base_does(tmp_path, monkeypatch):
+def test_a_merged_country_config_loads_without_publishing_credentials(tmp_path, monkeypatch):
     for name in ("OEX_S3_BUCKET", "HDX_API_KEY", "HDX_OWNER_ORG", "HDX_MAINTAINER"):
-        monkeypatch.setenv(name, "test")
+        monkeypatch.delenv(name, raising=False)
     overrides = tmp_path / "countries"
     overrides.mkdir()
     (overrides / "SDN.yaml").write_text("dataset_name: Sudan\n", encoding="utf-8")
