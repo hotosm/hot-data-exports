@@ -1,27 +1,44 @@
 # Deploy
 
-The exports need uv, just, git, `flock` from util-linux, osmium-tool for planet extracts, a
-disk for `OEX_DATA_DIR`, and AWS credentials that can write to the bucket.
+A push to `main` that changes the configs or the code publishes the image
+`ghcr.io/hotosm/hot-data-exports`, tagged `main` and `windmill-main`. It runs on a schedule:
 
-On one Linux machine:
+| Command | When |
+|---|---|
+| `sweep.py --due --wait` | daily |
+| `sweep.py --group events --due` | every 5 minutes |
 
-1. Clone the repository on that disk and follow [Set up](operate.md#set-up).
-2. Copy `infra/server/*.service` and `infra/server/*.timer` to `/etc/systemd/system/`, and
-   set `User` and the checkout path in each service.
-3. Start the timers:
+Each run needs the variables in
+[`.env.example`](https://github.com/hotosm/hot-data-exports/blob/main/.env.example) and a disk at
+`/data` with room for the [planet file](https://planet.openstreetmap.org/pbf/). A run waits for
+another using `/data` with `--wait`, or exits 3 without it. Give each S3 bucket one scheduler.
+
+## One machine
+
+1. Install podman, and write the variables to `/etc/hot-data-exports.env` as `NAME=value`
+   lines, readable only by root.
+2. Copy `infra/server/*` to `/etc/systemd/system/`, set the data folder and memory cap in both
+   services, and start the timers:
 
     ```bash
+    sudo systemctl daemon-reload
     sudo systemctl enable --now oex-daily.timer oex-watch.timer
     ```
 
-`oex-daily` pulls `main` and runs every due export at 02:00 UTC. Every 5 minutes, `oex-watch`
-pulls `main` and, when `configs/events/` changed, runs the due events. Leave the checkout on
-`main` without local changes, or the pull fails.
+Read a job's log with `journalctl -u oex-daily -u oex-watch -g 'normal/ZWE'`.
 
-Under another scheduler, run `./scripts/sweep.py --due` once a day with the same
-environment, and `./scripts/sweep.py --group events --due` more often to publish merged
-events sooner. Keep `OEX_DATA_DIR`, or the checkout when it is unset, between runs: `.sweep/`
-records which expired events were closed. Run one scheduler per bucket: the locks only stop
-overlapping runs on one machine. GitHub-hosted runners suit events only; a country export
-outgrows their [6-hour job limit](https://docs.github.com/en/actions/reference/limits) and
-[14 GB disk](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+## Windmill
+
+1. Run each worker group on the `windmill-main` tag with one worker, pull policy `Always` and
+   one `ReadWriteMany` volume at `/data`, shared by all groups.
+2. Set the variables on the workers, and list their names and `OEX_DATA_DIR` in
+   [`WHITELIST_ENVS`](https://www.windmill.dev/docs/core_concepts/environment_variables).
+   Windmill passes a job only the variables listed there.
+3. Schedule one Bash script per group: `events` every 5 minutes, and `priority`, `normal`,
+   `high_income` and `big` daily.
+
+    ```bash
+    /app/.venv/bin/python /app/scripts/sweep.py --group normal --due --wait
+    ```
+
+Restart the workers after each new image. Each run's page holds its log.

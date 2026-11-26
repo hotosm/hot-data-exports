@@ -57,7 +57,6 @@ def due_jobs(candidates: list[Job], now: datetime) -> tuple[list[Job], list[str]
 
 
 def unloadable(candidates: list[Job]) -> list[str]:
-    """A line per config oex refuses to load, each named by its job."""
     problems = []
     for config, iso3, job_id in {
         (job.config, job.iso3, job.id.split(":")[0]) for job in candidates

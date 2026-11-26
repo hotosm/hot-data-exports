@@ -1,6 +1,6 @@
 import json
 
-import publish_source_geometry as psg
+import source_geometry
 
 SQUARE = json.dumps({"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]})
 
@@ -31,22 +31,29 @@ def write_config(tmp_path, buffer):
 
 def run(monkeypatch, path, extra=()):
     monkeypatch.setattr(
-        "sys.argv", ["publish_source_geometry.py", "--config", str(path), "--name", "n", *extra]
+        "sys.argv", ["source_geometry.py", "--config", str(path), "--name", "n", *extra]
     )
-    return psg.main()
+    return source_geometry.main()
 
 
 def test_a_config_without_a_buffer_is_refused(tmp_path, monkeypatch):
     assert run(monkeypatch, write_config(tmp_path, 0), ["--dry-run"]) == 2
 
 
-def test_a_dry_run_publishes_nothing(tmp_path, monkeypatch):
-    def fail(*args, **kwargs):
-        raise AssertionError("a dry run must not upload")
+def fail(*args, **kwargs):
+    raise AssertionError("must not be called")
 
-    monkeypatch.setattr(psg, "attach_geojson", fail)
-    monkeypatch.setattr(psg, "configure", fail)
+
+def test_a_dry_run_publishes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(source_geometry, "publish", fail)
     assert run(monkeypatch, write_config(tmp_path, 200), ["--dry-run"]) == 0
+
+
+def test_an_unset_bucket_fails_before_hdx_is_read(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("OEX_S3_BUCKET", raising=False)
+    monkeypatch.setattr(source_geometry.Dataset, "read_from_hdx", fail)
+    assert run(monkeypatch, write_config(tmp_path, 200)) == 1
+    assert "bucket" in capsys.readouterr().err
 
 
 def test_a_geometry_kept_in_a_file_is_measured(tmp_path, monkeypatch, capsys):

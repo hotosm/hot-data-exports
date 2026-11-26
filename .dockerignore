@@ -1,0 +1,9 @@
+*
+!pyproject.toml
+!uv.lock
+!.python-version
+!configs/
+!scripts/
+configs/tasking_manager/*.yaml
+configs/tasking_manager_sandbox/*.yaml
+**/__pycache__

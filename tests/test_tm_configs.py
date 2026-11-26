@@ -43,20 +43,17 @@ def build(project_id=4242, mapping_types=(2,), custom=None):
     )
 
 
-def test_mapping_type_ints_are_one_based_indexes():
-    assert tm_configs.category_names([1, 2, 3, 4]) == ["Roads", "Buildings", "Waterways", "Landuse"]
-
-
-def test_mapping_type_strings_are_accepted():
-    assert tm_configs.category_names(["BUILDINGS", "LAND_USE"]) == ["Buildings", "Landuse"]
-
-
-def test_unsupported_mapping_types_are_dropped():
-    assert tm_configs.category_names([9, 0, "SATELLITE_IMAGERY", None]) == []
-
-
-def test_missing_mapping_types_are_dropped():
-    assert tm_configs.category_names(None) == []
+@pytest.mark.parametrize(
+    ("mapping_types", "names"),
+    [
+        ([1, 2, 3, 4], ["Roads", "Buildings", "Waterways", "Landuse"]),
+        (["BUILDINGS", "LAND_USE"], ["Buildings", "Landuse"]),
+        ([9, 0, "SATELLITE_IMAGERY", None], []),
+        (None, []),
+    ],
+)
+def test_mapping_types_become_template_categories(mapping_types, names):
+    assert tm_configs.category_names(mapping_types) == names
 
 
 def test_a_project_identifies_by_id_and_carries_no_country():
@@ -244,9 +241,15 @@ def test_the_template_is_never_mutated_between_projects():
     assert OmegaConf.to_yaml(TEMPLATE, resolve=False) == before
 
 
-def test_an_interval_beyond_the_api_cap_is_rejected():
-    with pytest.raises(tm_configs.TaskingManagerError, match="interval"):
-        tm_configs.fetch_active_projects(48, sandbox=False, timeout=1)
+def test_an_interval_beyond_the_api_cap_is_rejected_before_the_api_is_called(monkeypatch):
+    def fail(*args):
+        raise AssertionError("the API must not be called")
+
+    monkeypatch.setattr(tm_configs, "fetch_active_projects", fail)
+    monkeypatch.setattr("sys.argv", ["tm_configs", "--interval", "48"])
+    with pytest.raises(SystemExit) as exit_info:
+        tm_configs.main()
+    assert exit_info.value.code == 2
 
 
 def test_sync_writes_new_configs(tmp_path):
@@ -268,15 +271,9 @@ def test_only_pruning_removes_configs_of_projects_no_longer_active(tmp_path, pru
     assert (tmp_path / "1.yaml").exists()
 
 
-def test_a_dry_run_prunes_nothing(tmp_path):
-    tm_configs.sync(tmp_path, {"1.yaml": build(1), "2.yaml": build(2)}, dry_run=False)
-    tm_configs.sync(tmp_path, {"1.yaml": build(1)}, dry_run=True, prune=True)
-    assert (tmp_path / "2.yaml").exists()
-
-
-def test_dry_run_touches_nothing(tmp_path):
+def test_a_dry_run_writes_and_prunes_nothing(tmp_path):
     (tmp_path / "9.yaml").write_text("stale", encoding="utf-8")
-    assert tm_configs.sync(tmp_path, {"1.yaml": build(1)}, dry_run=True) == 1
+    assert tm_configs.sync(tmp_path, {"1.yaml": build(1)}, dry_run=True, prune=True) == 1
     assert not (tmp_path / "1.yaml").exists()
     assert (tmp_path / "9.yaml").read_text(encoding="utf-8") == "stale"
 
@@ -392,12 +389,6 @@ def test_extract_rejects_a_source_that_is_not_there(tmp_path):
         )
 
 
-@pytest.mark.parametrize(("count", "sizes"), [(13, [6, 6, 1]), (6, [6]), (1, [1])])
-def test_projects_are_split_into_batches_of_at_most_the_size(count, sizes):
-    features = [feature(index, [2]) for index in range(count)]
-    assert [len(batch) for batch in tm_configs.batches(features, 6)] == sizes
-
-
 def test_each_osmium_pass_cuts_one_batch_and_every_project_gets_its_extract(tmp_path, monkeypatch):
     source = tmp_path / "source.osm.pbf"
     source.write_bytes(b"pbf")
@@ -419,13 +410,6 @@ def test_each_osmium_pass_cuts_one_batch_and_every_project_gets_its_extract(tmp_
     assert sorted(usable) == ["0", "1", "2", "3", "4"]
 
 
-@pytest.mark.parametrize("value", ["0", "six", "-2"])
-def test_a_batch_size_that_is_not_a_positive_whole_number_is_rejected(monkeypatch, value):
-    monkeypatch.setenv(tm_configs.EXTRACT_BATCH_ENV, value)
-    with pytest.raises(tm_configs.TaskingManagerError, match=tm_configs.EXTRACT_BATCH_ENV):
-        tm_configs.extract_batch_size()
-
-
 def test_pruning_leaves_files_it_did_not_generate(tmp_path):
     for name in ("_partial.yaml", "NPL-FL-2026-a.yaml"):
         (tmp_path / name).write_text("key: value\n", encoding="utf-8")
@@ -437,7 +421,7 @@ def test_pruning_leaves_files_it_did_not_generate(tmp_path):
 def test_a_run_for_named_projects_keeps_the_other_configs(tmp_path, monkeypatch):
     tm_configs.sync(tmp_path, {"2.yaml": build(2)}, dry_run=False)
     monkeypatch.setattr("sys.argv", ["tm_configs", "--project", "1", "--out", str(tmp_path)])
-    monkeypatch.setattr(tm_configs, "fetch_project", lambda project_id, timeout: feature(1, [2]))
+    monkeypatch.setattr(tm_configs, "fetch_project", lambda project_id: feature(1, [2]))
     assert tm_configs.main() == 0
     assert (tmp_path / "1.yaml").exists()
     assert (tmp_path / "2.yaml").exists()

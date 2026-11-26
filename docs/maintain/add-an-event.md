@@ -82,13 +82,12 @@ nothing.
 
 ## 4. Keep it updating
 
-The export server checks `main` every 5 minutes. When a merge changes a file in
-`configs/events/`, it publishes every event that is due, once any export already running
-finishes. It then keeps each event on its frequency until `expires`. A maintainer can
-change when an event runs in [the schedule](../reference/schedule.md).
+A merge builds a new image. Once the image is deployed, the event runs within 5 minutes, after
+any export already running on the same machine or worker group. It then runs on its
+`frequency` until `expires`. A maintainer can change when an event runs in
+[the schedule](../reference/schedule.md).
 
-The day after `expires`, the server stops the exports and sets the dataset's update
-frequency on HDX to "As needed", once. To end an event early, set `expires` to yesterday
-and merge; the server closes it at its next check, once any export already running
-finishes. An event that sets `hdx.combine: false` isn't closed this way; set its HDX update
-frequency by hand.
+The day after `expires`, the scheduler sets the dataset's update frequency on HDX to
+"As needed", once. To end an event early, set `expires` to yesterday and merge; the
+next events run closes it. An event that sets `hdx.combine: false` isn't closed
+this way; set its HDX update frequency by hand.

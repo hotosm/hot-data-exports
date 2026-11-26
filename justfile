@@ -43,4 +43,4 @@ tm-sandbox:
 
 # Publish to HDX the geometry a buffered boundary was widened from.
 source-geometry CONFIG NAME *ARGS:
-    ./scripts/publish_source_geometry.py --config "$1" --name "$2" "${@:3}"
+    ./scripts/source_geometry.py --config "$1" --name "$2" "${@:3}"

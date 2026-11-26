@@ -1,5 +1,6 @@
 import os
-from dataclasses import dataclass
+import tempfile
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -17,7 +18,7 @@ COMMAND_SOURCES = ("osm", "overture")
 
 
 class ScheduleError(Exception):
-    """The schedule, or a config it points at, is malformed."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -27,16 +28,13 @@ class Job:
     command: str
     config: Path
     iso3: str | None
-    extra: tuple[str, ...] = ()
+    settings: dict[str, object] = field(default_factory=dict)
     frequency: str = MANUAL_FREQUENCY
     workers: int = 1
-    closes: Path | None = None
+    closes: str | None = None
 
-    def argv(self) -> list[str]:
-        argv = ["uv", "run", "oex-cli", self.command, "--config", str(self.config)]
-        if self.iso3:
-            argv += ["--iso3", self.iso3]
-        return argv + list(self.extra)
+    def overrides(self) -> dict[str, object]:
+        return {**({"iso3": self.iso3} if self.iso3 else {}), **self.settings}
 
 
 def expiry_date(value: object) -> date:
@@ -55,7 +53,7 @@ def frequency_days(value: object) -> int | None:
 
 
 def commands_for(config: Path) -> list[str]:
-    """Which oex-cli subcommands a config needs. Both sources enabled means both."""
+    """The sources a config enables, each a job of its own."""
     raw = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
     source = raw.get("source")
     if source is None:
@@ -70,5 +68,9 @@ def write_merged(name: str, config: DictConfig | ListConfig) -> Path:
     """Writes a merged config under WORK_DIR/merged with interpolations, so no secret lands."""
     target = WORK_DIR / "merged" / name
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(OmegaConf.to_yaml(config, resolve=False), encoding="utf-8")
+    # Replaced whole, so a job loading it while another sweep resolves never reads half a file.
+    handle, staged = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
+    with os.fdopen(handle, "w", encoding="utf-8") as stream:
+        stream.write(OmegaConf.to_yaml(config, resolve=False))
+    os.replace(staged, target)
     return target

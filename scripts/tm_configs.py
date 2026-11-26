@@ -1,11 +1,6 @@
 #!/usr/bin/env -S uv run python
 """Generate one oex config per active Tasking Manager project.
 
-    tm_configs.py                       production projects, last 24h
-    tm_configs.py --interval 6          a shorter window
-    tm_configs.py --sandbox --extract   sandbox projects, cut from TM_SANDBOX_PBF
-    tm_configs.py --dry-run             report what would change, write nothing
-
 A project doesn't have a country code, so output.s3.folder carries its id. Production configs
 query Postpass for the project polygon; sandbox configs read a PBF cut to it. Without
 --project, each run deletes the configs of projects no longer active.
@@ -15,9 +10,12 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+from collections.abc import Iterable
+from itertools import batched
 from pathlib import Path
 from typing import cast
 
@@ -28,14 +26,14 @@ from oex.osm.runner import refresh_planet_pbf, refreshes_planet
 from omegaconf import OmegaConf
 from upath import UPath
 
-from tasking_manager import TM_API, TaskingManagerError, fetch_json
-
+TM_API = os.environ.get("TM_API") or "https://tasking-manager-production-api.hotosm.org/api/v2"
+TM_TIMEOUT_SECONDS = 60
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = REPO_ROOT / "configs" / "_tm-template.yaml"
 MAX_INTERVAL_HOURS = 24
 SANDBOX_PBF_ENV = "TM_SANDBOX_PBF"
 EXTRACT_BATCH_ENV = "TM_EXTRACT_BATCH"
-# complete_ways holds at least 2 x highest node ID / 8 bytes per extract, about 3 GB on the planet: https://docs.osmcode.org/osmium/latest/osmium-extract.html
+# complete_ways needs about 3 GB per extract on the planet: https://docs.osmcode.org/osmium/latest/osmium-extract.html
 DEFAULT_EXTRACT_BATCH = 6
 # TM mapping_types are 1-based indexes into this order.
 MAPPING_TYPES = ("Roads", "Buildings", "Waterways", "Landuse")
@@ -43,27 +41,37 @@ DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
 OSM_KEY = re.compile(r"[A-Za-z0-9_:.-]+")
 
 
+class TaskingManagerError(Exception):
+    pass
+
+
+def fetch_json(url: str) -> dict:
+    request = urllib.request.Request(url, headers={"accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=TM_TIMEOUT_SECONDS) as response:
+            return json.load(response)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+        raise TaskingManagerError(f"{url}: {error}") from error
+
+
 def _display(path: Path) -> str:
     return os.path.relpath(path, REPO_ROOT)
 
 
-def fetch_active_projects(interval: int, sandbox: bool, timeout: int) -> list[dict]:
-    """Active projects as GeoJSON features. The endpoint caps interval at 24 hours."""
-    if not 1 <= interval <= MAX_INTERVAL_HOURS:
-        raise TaskingManagerError(f"--interval must be 1..{MAX_INTERVAL_HOURS}, got {interval}")
+def fetch_active_projects(interval: int, sandbox: bool) -> list[dict]:
     url = f"{TM_API}/projects/queries/active/?interval={interval}"
     if sandbox:
         url += "&sandbox=true"
-    payload = fetch_json(url, timeout)
+    payload = fetch_json(url)
     if "features" not in payload:
         raise TaskingManagerError(f"{url}: no `features` in the response: {payload}")
     return payload["features"]
 
 
-def fetch_project(project_id: str, timeout: int) -> dict:
+def fetch_project(project_id: str) -> dict:
     """One project as a GeoJSON feature, whatever its recent activity."""
     url = f"{TM_API}/projects/{project_id}/"
-    payload = fetch_json(url, timeout)
+    payload = fetch_json(url)
     if "areaOfInterest" not in payload:
         raise TaskingManagerError(f"{url}: no `areaOfInterest` in the response")
     return {
@@ -171,7 +179,7 @@ def build_config(
     return cfg
 
 
-def write_osmium_config(features: list[dict], pbf_dir: Path) -> tuple[Path, dict[str, Path]]:
+def write_osmium_config(features: Iterable[dict], pbf_dir: Path) -> tuple[Path, dict[str, Path]]:
     """One osmium extract config for these projects, and each project id's output PBF."""
     pbf_dir.mkdir(parents=True, exist_ok=True)
     extracts, outputs = [], {}
@@ -197,20 +205,12 @@ def write_osmium_config(features: list[dict], pbf_dir: Path) -> tuple[Path, dict
 
 
 def run_osmium_extract(source_pbf: Path, config: Path) -> None:
-    command = [
-        "osmium",
-        "extract",
-        "--config",
-        str(config),
-        "--strategy",
-        "complete_ways",
-        "--overwrite",
-        str(source_pbf),
-    ]
     print(f"osmium extract: one pass over {source_pbf} for {config}")
-    completed = subprocess.run(command)
-    if completed.returncode != 0:
-        raise TaskingManagerError(f"osmium extract failed with rc={completed.returncode}")
+    subprocess.run(
+        ["osmium", "extract", "--config", str(config), "--strategy", "complete_ways"]
+        + ["--overwrite", str(source_pbf)],
+        check=True,
+    )
 
 
 def resolve_source_pbf(location: str) -> str:
@@ -241,8 +241,7 @@ def ensure_local_pbf(source: str, cache_dir: Path) -> Path:
         print(f"source: reusing {_display(local)}")
         return local
     print(f"source: downloading {source} ({size / 1e6:.1f} MB) -> {_display(local)}")
-    with remote.open("rb") as source_file, local.open("wb") as local_file:
-        shutil.copyfileobj(source_file, local_file)
+    remote.fs.get_file(remote.path, str(local))
     return local
 
 
@@ -265,12 +264,12 @@ def cut_project_extracts(
     features: list[dict], source: str, target: Path
 ) -> tuple[dict[str, Path], Path]:
     """Cut each project's PBF, one batch per osmium pass; returns usable extracts and the source."""
-    batch_size = extract_batch_size()
+    batch_size = int(os.environ.get(EXTRACT_BATCH_ENV, DEFAULT_EXTRACT_BATCH))
     source_pbf = ensure_local_pbf(resolve_source_pbf(source), target)
     if not source_pbf.is_file():
         raise TaskingManagerError(f"source PBF {source_pbf} is not a file")
     outputs: dict[str, Path] = {}
-    for batch in batches(features, batch_size):
+    for batch in batched(features, batch_size, strict=False):
         config, batch_outputs = write_osmium_config(batch, target)
         run_osmium_extract(source_pbf, config)
         outputs.update(batch_outputs)
@@ -289,32 +288,10 @@ def cut_project_extracts(
     return usable, source_pbf
 
 
-def extract_batch_size() -> int:
-    raw = os.environ.get(EXTRACT_BATCH_ENV, str(DEFAULT_EXTRACT_BATCH))
-    if not raw.isdecimal():
-        raise TaskingManagerError(f"{EXTRACT_BATCH_ENV} must be a whole number, got {raw!r}")
-    size = int(raw)
-    if size < 1:
-        raise TaskingManagerError(f"{EXTRACT_BATCH_ENV} must be at least 1, got {size}")
-    return size
-
-
-def batches(features: list[dict], size: int) -> list[list[dict]]:
-    return [features[start : start + size] for start in range(0, len(features), size)]
-
-
 def node_count(pbf: Path) -> int:
     """Nodes in a PBF. Zero means the source did not cover that project's polygon."""
-    completed = subprocess.run(
-        ["osmium", "fileinfo", "-e", "-g", "data.count.nodes", str(pbf)],
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise TaskingManagerError(f"osmium fileinfo failed for {pbf}: {completed.stderr.strip()}")
-    if not completed.stdout.strip():
-        raise TaskingManagerError(f"osmium fileinfo printed no node count for {pbf}")
-    return int(completed.stdout.strip())
+    command = ["osmium", "fileinfo", "-e", "-g", "data.count.nodes", str(pbf)]
+    return int(subprocess.run(command, stdout=subprocess.PIPE, text=True, check=True).stdout)
 
 
 def sync(out_dir: Path, configs: dict, dry_run: bool, prune: bool = False) -> int:
@@ -338,57 +315,29 @@ def sync(out_dir: Path, configs: dict, dry_run: bool, prune: bool = False) -> in
     return written
 
 
-def export_configs(paths: list[Path]) -> int:
-    """Run oex-cli over the configs just written. How often to do that is the caller's call."""
-    failures = []
-    for index, path in enumerate(paths, start=1):
-        print(f"[{index}/{len(paths)}] export {_display(path)}", flush=True)
-        completed = subprocess.run(
-            ["uv", "run", "oex-cli", "osm", "--config", str(path)], cwd=REPO_ROOT
-        )
-        if completed.returncode != 0:
-            print(f"[{index}/{len(paths)}] FAILED rc={completed.returncode}", file=sys.stderr)
-            failures.append(path.name)
-    if failures:
-        print(f"{len(failures)}/{len(paths)} failed: {', '.join(failures)}", file=sys.stderr)
-        return 1
-    print(f"export complete {len(paths)}/{len(paths)}")
-    return 0
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
         "--interval",
         type=int,
+        choices=range(1, MAX_INTERVAL_HOURS + 1),
         default=MAX_INTERVAL_HOURS,
-        help=f"hours of activity, 1..{MAX_INTERVAL_HOURS} (default {MAX_INTERVAL_HOURS})",
+        metavar="HOURS",
+        help=f"hours of activity, 1 to {MAX_INTERVAL_HOURS} (default {MAX_INTERVAL_HOURS})",
     )
     parser.add_argument("--sandbox", action="store_true", help="sandbox projects")
     parser.add_argument("--out", type=Path, help="output dir (default: the group dir)")
-    parser.add_argument("--timeout", type=int, default=60, help="API timeout, seconds")
     parser.add_argument("--dry-run", action="store_true", help="report only, write nothing")
     parser.add_argument(
         "--extract",
         action="store_true",
-        help=f"cut a per-project PBF, {EXTRACT_BATCH_ENV} projects per osmium pass, and point "
-        "each config at its own extract",
+        help=f"cut a PBF per project, {EXTRACT_BATCH_ENV} projects per osmium pass",
     )
-    parser.add_argument("--pbf-dir", type=Path, help="where --extract writes per-project PBFs")
+    parser.add_argument("--template", type=Path, default=TEMPLATE, help="config template")
     parser.add_argument(
-        "--template", type=Path, default=TEMPLATE, help="config template to fill in per project"
-    )
-    parser.add_argument(
-        "--project",
-        action="append",
-        metavar="ID",
-        help="export these projects whatever their activity, ignoring --interval",
-    )
-    parser.add_argument(
-        "--export", action="store_true", help="export each project after writing its config"
+        "--project", action="append", metavar="ID", help="these projects, ignoring --interval"
     )
     args = parser.parse_args()
 
@@ -400,18 +349,16 @@ def main() -> int:
         return 2
     if args.sandbox and not args.extract and not args.dry_run:
         print(
-            f"tm: --sandbox needs --extract, since {SANDBOX_PBF_ENV} names a folder of dated "
-            "exports",
-            file=sys.stderr,
+            f"tm: --sandbox needs --extract; {SANDBOX_PBF_ENV} names dated exports", file=sys.stderr
         )
         return 2
 
     template = OmegaConf.create(args.template.read_text(encoding="utf-8"))
     try:
         if args.project:
-            features = [fetch_project(pid, args.timeout) for pid in args.project]
+            features = [fetch_project(project_id) for project_id in args.project]
         else:
-            features = fetch_active_projects(args.interval, args.sandbox, args.timeout)
+            features = fetch_active_projects(args.interval, args.sandbox)
 
         kept = []
         for feature in features:
@@ -425,12 +372,10 @@ def main() -> int:
         source_pbf = None
         if args.extract and kept and not args.dry_run:
             group = "tm_sandbox" if args.sandbox else "tm"
-            pbf_dir = (
-                args.pbf_dir or Path(os.environ.get("OEX_DATA_DIR", REPO_ROOT)) / "data" / group
-            )
+            pbf_dir = Path(os.environ.get("OEX_DATA_DIR", REPO_ROOT)) / "data" / group
             source = extract_source(args.template, args.sandbox)
             outputs, source_pbf = cut_project_extracts(kept, source, pbf_dir)
-    except TaskingManagerError as error:
+    except (TaskingManagerError, subprocess.CalledProcessError) as error:
         print(f"tm: {error}", file=sys.stderr)
         return 2
 
@@ -438,10 +383,7 @@ def main() -> int:
     for feature in kept:
         project_id = str(feature["properties"]["project_id"])
         cfg = build_config(
-            template,
-            feature,
-            outputs.get(project_id, source_pbf),
-            args.template != TEMPLATE,
+            template, feature, outputs.get(project_id, source_pbf), args.template != TEMPLATE
         )
         if cfg is None:
             print(f"skip project {project_id}: no category matched")
@@ -454,9 +396,7 @@ def main() -> int:
         f"tm: {scope} active={len(features)} configs={len(configs)} "
         f"written={written} -> {_display(out_dir)}"
     )
-    if not args.export or args.dry_run:
-        return 0
-    return export_configs([out_dir / name for name in sorted(configs)])
+    return 0
 
 
 if __name__ == "__main__":

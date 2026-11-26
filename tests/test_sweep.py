@@ -1,5 +1,7 @@
+import logging
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -10,6 +12,7 @@ import pytest
 import yaml
 from botocore.exceptions import ClientError
 from oex.config.loader import load_config
+from omegaconf import OmegaConf
 
 import due as due_module
 import events
@@ -21,6 +24,12 @@ from jobs import Job, ScheduleError
 from schedule import Schedule
 
 TODAY = date(2026, 8, 5)
+
+
+@pytest.fixture(autouse=True)
+def keep_the_working_directory(monkeypatch):
+    monkeypatch.chdir(Path.cwd())
+
 
 OSM_CONFIG = "iso3: NPL\nsource:\n  osm:\n    enabled: true\n  overture:\n    enabled: false\n"
 OVERTURE_CONFIG = "iso3: NPL\nsource:\n  osm:\n    enabled: false\n  overture:\n    enabled: true\n"
@@ -35,9 +44,9 @@ def write_config(folder, name, body, frequency=None):
 
 
 def resolve_all(
-    schedule, group=None, frequency=None, today=TODAY, extra=(), workers=None, every=False
+    schedule, group=None, frequency=None, today=TODAY, settings=None, workers=None, every=False
 ):
-    return Schedule(schedule, today, frequency, extra, workers, every).resolve(group)
+    return Schedule(schedule, today, frequency, settings, workers, every).resolve(group)
 
 
 def resolve(schedule, group=None, frequency=None):
@@ -57,22 +66,20 @@ def countries_schedule(countries, enabled=True):
     }
 
 
-def test_bare_value_is_a_frequency():
-    assert schedule_module.normalise_attributes("daily", None) == {
-        "frequency": "daily",
-        "enabled": True,
-    }
-
-
-def test_mapping_value_overrides_the_group_default():
-    attrs = schedule_module.normalise_attributes(
-        {"frequency": "weekly", "enabled": False}, "monthly"
-    )
-    assert attrs == {"frequency": "weekly", "enabled": False}
-
-
-def test_missing_value_falls_back_to_the_group_default():
-    assert schedule_module.normalise_attributes(None, "monthly")["frequency"] == "monthly"
+@pytest.mark.parametrize(
+    ("value", "group_default", "attributes"),
+    [
+        ("daily", None, {"frequency": "daily", "enabled": True}),
+        (
+            {"frequency": "weekly", "enabled": False},
+            "monthly",
+            {"frequency": "weekly", "enabled": False},
+        ),
+        (None, "monthly", {"frequency": "monthly", "enabled": True}),
+    ],
+)
+def test_a_value_is_a_frequency_a_mapping_or_the_group_default(value, group_default, attributes):
+    assert schedule_module.normalise_attributes(value, group_default) == attributes
 
 
 def test_a_value_that_is_neither_is_rejected():
@@ -90,23 +97,22 @@ def test_frequency_mismatch_is_silent():
     assert skipped == []
 
 
-def test_disabled_job_is_skipped_with_a_reason():
-    jobs, skipped = resolve(countries_schedule({"NPL": {"frequency": "daily", "enabled": False}}))
-    assert jobs == []
-    assert skipped == ["priority/NPL: disabled"]
-
-
-def test_disabled_group_is_skipped_with_a_reason():
-    jobs, skipped = resolve(countries_schedule({"NPL": "daily"}, enabled=False))
-    assert jobs == []
-    assert skipped == ["priority: group disabled"]
-
-
-def test_expired_job_is_skipped():
-    entry = {"frequency": "daily", "expires": date(2026, 8, 4)}
-    jobs, skipped = resolve(countries_schedule({"NPL": entry}))
-    assert jobs == []
-    assert skipped == ["priority/NPL: expired 2026-08-04"]
+@pytest.mark.parametrize(
+    ("schedule", "reason"),
+    [
+        (
+            countries_schedule({"NPL": {"frequency": "daily", "enabled": False}}),
+            "priority/NPL: disabled",
+        ),
+        (countries_schedule({"NPL": "daily"}, enabled=False), "priority: group disabled"),
+        (
+            countries_schedule({"NPL": {"frequency": "daily", "expires": date(2026, 8, 4)}}),
+            "priority/NPL: expired 2026-08-04",
+        ),
+    ],
+)
+def test_a_disabled_or_expired_job_is_skipped_with_a_reason(schedule, reason):
+    assert resolve(schedule) == ([], [reason])
 
 
 def test_expiry_is_inclusive_of_the_final_day():
@@ -127,24 +133,22 @@ def test_manual_jobs_run_when_asked_for_by_name():
     assert [job.iso3 for job in jobs] == ["NPL"]
 
 
-def test_a_job_without_a_frequency_anywhere_is_an_error():
-    with pytest.raises(ScheduleError):
-        resolve(countries_schedule({"NPL": {"enabled": True}}))
-
-
-def test_unknown_group_filter_is_an_error():
-    with pytest.raises(ScheduleError):
-        resolve(countries_schedule({"NPL": "daily"}), group="nope")
-
-
-def test_group_listed_without_a_block_is_an_error():
-    with pytest.raises(ScheduleError):
-        resolve({"groups": ["priority", "ghost"], "priority": {"countries": {"NPL": "daily"}}})
-
-
-def test_group_with_neither_countries_nor_dir_is_an_error():
-    with pytest.raises(ScheduleError):
-        resolve({"groups": ["priority"], "priority": {"enabled": True}})
+@pytest.mark.parametrize(
+    ("schedule", "group", "message"),
+    [
+        (countries_schedule({"NPL": {"enabled": True}}), None, "no frequency"),
+        (countries_schedule({"NPL": "daily"}), "nope", "unknown group"),
+        (
+            {"groups": ["priority", "ghost"], "priority": {"countries": {"NPL": "daily"}}},
+            None,
+            "has no block",
+        ),
+        ({"groups": ["priority"], "priority": {"enabled": True}}, None, "neither"),
+    ],
+)
+def test_a_malformed_schedule_is_an_error(schedule, group, message):
+    with pytest.raises(ScheduleError, match=message):
+        resolve(schedule, group=group)
 
 
 def test_groups_run_in_declared_order():
@@ -362,12 +366,12 @@ def test_an_expiry_that_is_not_a_date_is_reported_broken(events_dir, event_base)
     assert "YYYY-MM-DD" in line
 
 
-def test_no_hdx_push_reaches_every_command_line(tmp_path, monkeypatch):
+def test_no_hdx_push_reaches_every_job_with_its_country(tmp_path, monkeypatch):
     monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path / "work")
     jobs, _, _ = resolve_all(
-        countries_schedule({"NPL": "monthly"}), None, None, TODAY, ("--no-hdx-push",)
+        countries_schedule({"NPL": "monthly"}), None, None, TODAY, {"hdx.push": False}
     )
-    assert jobs[0].argv()[-1] == "--no-hdx-push"
+    assert jobs[0].overrides() == {"iso3": "NPL", "hdx.push": False}
 
 
 def test_a_country_without_an_override_still_gets_a_merged_config(tmp_path, monkeypatch):
@@ -413,29 +417,108 @@ def test_a_merged_country_config_loads_without_publishing_credentials(tmp_path, 
     assert merged.dataset_name == "Sudan"
 
 
-class StubJob:
-    def __init__(self, job_id, argv):
-        self.id = job_id
-        self._argv = argv
+def stub(job_id, config="unused"):
+    return Job(job_id, "tests", "osm", Path(config), None)
 
-    def argv(self):
-        return self._argv
+
+def succeed(job):
+    return True
+
+
+def fail(job):
+    return False
+
+
+def crash(job):
+    raise RuntimeError(f"{job.id} broke")
+
+
+def hang(job):
+    time.sleep(300)
+
+
+def log_a_line(job):
+    logging.getLogger("oex.exporter").error("boom")
+    return False
+
+
+def touch_then_hang(job):
+    job.config.touch()
+    time.sleep(300)
+
+
+def leave_a_grandchild(job):
+    inner = subprocess.Popen(["sleep", "300"])
+    job.config.write_text(str(inner.pid))
+    inner.wait()
+
+
+def leave_a_grandchild_ignoring_sigterm(job):
+    inner = subprocess.Popen(["sh", "-c", "trap '' TERM; sleep 300 & wait"])
+    job.config.write_text(str(inner.pid))
+    inner.wait()
+
+
+def touch_then_ignore_sigterm(job):
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    job.config.touch()
+    time.sleep(300)
+
+
+def mark_on_sigterm(job):
+    signal.signal(signal.SIGTERM, lambda *_: (job.config.touch(), sys.exit(0)))
+    time.sleep(300)
 
 
 def test_a_failing_job_is_reported_and_the_sweep_continues(capsys):
-    jobs = [StubJob("a", ["false"]), StubJob("b", ["true"])]
-    assert runner.Runner(30).run(jobs) == ["a"]
-    assert "[2/2] b done" in capsys.readouterr().out
+    assert runner.Runner(30, fail).run([stub("a"), stub("b")]) == ["a", "b"]
+    assert runner.Runner(30, succeed).run([stub("c")]) == []
+    assert "c done" in capsys.readouterr().out
+
+
+def test_a_job_that_raises_logs_the_reason_under_its_id(capfd):
+    assert runner.Runner(30, crash).run([stub("bad"), stub("other")], 2) == ["bad", "other"]
+    lines = capfd.readouterr().err.splitlines()
+    assert any(line.startswith("bad ") and "bad FAILED" in line for line in lines)
+    assert "RuntimeError: bad broke" in lines
+
+
+class Result:
+    succeeded, unchanged, empty, skipped, total_duration_s = 3, 0, 0, 0, 1.0
+
+    def __init__(self, failed):
+        self.failed = failed
+
+
+@pytest.mark.parametrize(("failed", "succeeded"), [(0, True), (1, False)])
+def test_an_export_succeeds_only_when_no_layer_failed(tmp_path, monkeypatch, failed, succeeded):
+    config = write_config(tmp_path, "npl.yaml", OSM_CONFIG)
+    monkeypatch.setattr(
+        runner, "Exporter", lambda cfg, source: type("E", (), {"run": lambda s: Result(failed)})()
+    )
+    assert runner.export(Job("tests/npl", "tests", "osm", config, "NPL")) is succeeded
+
+
+def test_every_log_line_a_job_writes_starts_with_its_id(capfd):
+    runner.Runner(30, log_a_line).run([stub("normal/ZWE")])
+    err = capfd.readouterr().err
+    assert any(
+        line.startswith("normal/ZWE ") and line.endswith("[ERROR] oex.exporter: boom")
+        for line in err.splitlines()
+    )
+    assert "normal/ZWE FAILED rc=1" in err
 
 
 def test_a_job_that_overruns_its_timeout_is_a_failure(capsys):
-    assert runner.Runner(1).run([StubJob("slow", ["sleep", "5"])]) == ["slow"]
+    assert runner.Runner(1, hang).run([stub("slow")]) == ["slow"]
     assert "TIMEOUT" in capsys.readouterr().err
 
 
 def _gone_within(pid_file: Path, seconds: float) -> bool:
-    pid = int(pid_file.read_text())
     deadline = time.monotonic() + seconds
+    while not pid_file.read_text() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    pid = int(pid_file.read_text())
     while time.monotonic() < deadline:
         try:
             os.kill(pid, 0)
@@ -447,46 +530,47 @@ def _gone_within(pid_file: Path, seconds: float) -> bool:
 
 def test_a_timeout_stops_the_process_the_job_started_too(tmp_path):
     pid_file = tmp_path / "inner.pid"
-    job = StubJob("slow", ["sh", "-c", f"sleep 300 & echo $! > {pid_file}; wait"])
-    assert runner.Runner(2).run([job]) == ["slow"]
+    pid_file.touch()
+    assert runner.Runner(5, leave_a_grandchild).run([stub("slow", pid_file)]) == ["slow"]
     assert _gone_within(pid_file, seconds=2)
 
 
 def test_an_inner_process_ignoring_sigterm_is_killed_after_the_grace_period(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "STOP_GRACE_SECONDS", 1)
     pid_file = tmp_path / "inner.pid"
-    job = StubJob("stubborn", ["sh", "-c", f"trap '' TERM; sleep 300 & echo $! > {pid_file}; wait"])
-    assert runner.Runner(2).run([job]) == ["stubborn"]
-    assert _gone_within(pid_file, seconds=2)
+    pid_file.touch()
+    job = stub("stubborn", pid_file)
+    assert runner.Runner(5, leave_a_grandchild_ignoring_sigterm).run([job]) == ["stubborn"]
+    assert _gone_within(pid_file, seconds=3)
 
 
 def test_a_timed_out_job_gets_sigterm_and_time_to_shut_down(tmp_path):
     marker = tmp_path / "stopped"
-    job = StubJob("slow", ["sh", "-c", f"trap 'touch {marker}; exit 0' TERM; sleep 300 & wait"])
-    assert runner.Runner(1).run([job]) == ["slow"]
+    assert runner.Runner(5, mark_on_sigterm).run([stub("slow", marker)]) == ["slow"]
     assert marker.exists()
 
 
-def test_ctrl_c_with_parallel_workers_starts_no_queued_job(tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
+def test_ctrl_c_stops_running_jobs_and_starts_no_queued_one(tmp_path, capfd):
     started = [tmp_path / "a", tmp_path / "b"]
     late = tmp_path / "late"
-    jobs = [
-        *[StubJob(f.name, ["sh", "-c", f"touch {f}; exec sleep 1"]) for f in started],
-        StubJob("late", ["touch", str(late)]),
-    ]
+    jobs = [stub(f.name, f) for f in [*started, late]]
 
     def interrupt_once_both_run():
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 30
         while not all(f.exists() for f in started) and time.monotonic() < deadline:
             time.sleep(0.05)
         os.kill(os.getpid(), signal.SIGINT)
 
+    job_runner = runner.Runner(60, touch_then_hang)
     threading.Thread(target=interrupt_once_both_run, daemon=True).start()
     with pytest.raises(KeyboardInterrupt):
-        runner.Runner(60).run(jobs, 2)
+        job_runner.run(jobs, 2)
     time.sleep(2)
     assert not late.exists()
+    assert job_runner._running == set()
+    err = capfd.readouterr().err
+    assert "a STOPPED" in err and "b STOPPED" in err
+    assert "TIMEOUT" not in err
 
 
 def test_a_second_sweep_cannot_take_the_lock(tmp_path, monkeypatch):
@@ -496,6 +580,16 @@ def test_a_second_sweep_cannot_take_the_lock(tmp_path, monkeypatch):
     assert runner.acquire_lock() is None
     held.close()
     assert runner.acquire_lock() is not None
+
+
+def test_a_waiting_sweep_takes_the_lock_once_it_is_released(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
+    held = runner.acquire_lock()
+    assert held is not None
+    threading.Timer(0.5, held.close).start()
+    started = time.monotonic()
+    assert runner.acquire_lock(wait=True) is not None
+    assert time.monotonic() - started >= 0.4
 
 
 def test_the_shipped_schedule_resolves(tmp_path, monkeypatch):
@@ -522,8 +616,10 @@ def test_a_dir_group_skips_underscore_partials(tmp_path, monkeypatch):
 
 
 def test_no_resume_reaches_the_oex_command(monkeypatch, tmp_path):
-    seen = main_with(monkeypatch, tmp_path, ["--no-resume"], countries_schedule({"NPL": "monthly"}))
-    assert seen["jobs"][0].argv()[-1] == "--no-resume"
+    [batch] = main_with(
+        monkeypatch, tmp_path, ["--no-resume"], countries_schedule({"NPL": "monthly"})
+    )
+    assert batch["jobs"][0].overrides()["output.resume"] is False
 
 
 def test_only_narrows_the_job_list(tmp_path, monkeypatch):
@@ -545,7 +641,7 @@ def test_workers_bound_peak_concurrency(tmp_path, monkeypatch):
     running = 0
     lock = threading.Lock()
 
-    def observe(self, job, log_dir):
+    def observe(self, job):
         nonlocal peak, running
         with lock:
             running += 1
@@ -556,138 +652,64 @@ def test_workers_bound_peak_concurrency(tmp_path, monkeypatch):
         return None
 
     monkeypatch.setattr(runner.Runner, "run_one", observe)
-    runner.Runner(30).run([StubJob(f"j{i}", ["true"]) for i in range(8)], 3)
+    runner.Runner(30).run([stub(f"j{i}") for i in range(8)], 3)
     assert peak == 3, f"peak concurrency was {peak}, expected 3"
 
 
-def test_one_failing_job_does_not_stop_the_rest(tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
-    jobs = [StubJob("bad", ["false"]), StubJob("good", ["true"]), StubJob("bad2", ["false"])]
-    assert sorted(runner.Runner(30).run(jobs, 2)) == ["bad", "bad2"]
+@pytest.mark.parametrize(("memory_gb", "workers", "share"), [(38, 1, 38), (38, 4, 9), (1, 8, 1)])
+def test_the_memory_budget_is_divided_between_workers_and_never_below_one_gb(
+    monkeypatch, memory_gb, workers, share
+):
+    monkeypatch.setattr(schedule_module, "adaptive_parallel_resources", lambda: (1, memory_gb))
+    assert schedule_module.memory_gb_per_worker(workers) == share
 
 
-def test_a_single_worker_writes_no_capture_files(tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
-    assert runner.Runner(30).run([StubJob("a", ["true"])], 1) == []
-    assert not (tmp_path / "logs").exists()
-
-
-def test_parallel_workers_capture_each_job_separately(tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
-    runner.Runner(30).run([StubJob("x/y", ["echo", "hello"])], 2)
-    assert (tmp_path / "logs" / "x_y.log").read_text().strip() == "hello"
-
-
-def test_the_memory_budget_is_divided_between_workers(monkeypatch):
-    monkeypatch.setattr(schedule_module, "adaptive_parallel_resources", lambda: (1, 38))
-    assert schedule_module.memory_gb_per_worker(1) == 38
-    assert schedule_module.memory_gb_per_worker(4) == 9
-
-
-def test_the_budget_never_drops_below_one_gb(monkeypatch):
-    monkeypatch.setattr(schedule_module, "adaptive_parallel_resources", lambda: (1, 1))
-    assert schedule_module.memory_gb_per_worker(8) == 1
-
-
-def test_the_budget_reaches_the_merged_config(tmp_path, monkeypatch):
+@pytest.mark.parametrize("budget", [7, None])
+def test_only_a_budget_reaches_the_merged_config(tmp_path, monkeypatch, budget):
     monkeypatch.setattr(jobs_module, "COUNTRY_CONFIG_DIR", tmp_path / "countries")
     monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path / "work")
-    merged = yaml.safe_load(
-        schedule_module.country_config("SDN", "monthly", 7).read_text(encoding="utf-8")
-    )
-    assert merged["parallel"]["memory_gb"] == 7
+    merged = OmegaConf.load(schedule_module.country_config("SDN", "monthly", budget))
+    assert OmegaConf.select(merged, "parallel.memory_gb") == budget
 
 
-def test_no_budget_leaves_the_config_untouched(tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs_module, "COUNTRY_CONFIG_DIR", tmp_path / "countries")
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path / "work")
-    merged = yaml.safe_load(
-        schedule_module.country_config("SDN", "monthly").read_text(encoding="utf-8")
-    )
-    assert "memory_gb" not in (merged.get("parallel") or {})
-
-
-def test_an_unrunnable_job_does_not_discard_its_siblings(tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
-    jobs = [StubJob("missing", ["/nonexistent/binary"]), StubJob("fine", ["true"])]
-    assert runner.Runner(30).run(jobs, 2) == ["missing"]
-
-
-def test_a_failure_names_the_log_that_holds_its_output(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
-    runner.Runner(30).run([StubJob("bad", ["false"])], 2)
-    assert "bad.log" in capsys.readouterr().err
-
-
-def test_an_unwritable_log_directory_fails_one_job_not_the_sweep(tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
-    (tmp_path / "logs").mkdir()
-    (tmp_path / "logs").chmod(0o500)
-    try:
-        jobs = [StubJob("a", ["true"]), StubJob("b", ["true"])]
-        assert sorted(runner.Runner(30).run(jobs, 2)) == ["a", "b"]
-    finally:
-        (tmp_path / "logs").chmod(0o700)
-
-
-def main_with(monkeypatch, tmp_path, argv, schedule):
+def use_schedule(monkeypatch, tmp_path, schedule, *argv):
     schedule_file = tmp_path / "schedule.yaml"
     schedule_file.write_text(yaml.safe_dump(schedule), encoding="utf-8")
     monkeypatch.setattr(jobs_module, "SCHEDULE_FILE", schedule_file)
     monkeypatch.setattr(jobs_module, "COUNTRY_CONFIG_DIR", tmp_path / "countries")
     monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path / "work")
-    monkeypatch.setattr(runner, "acquire_lock", lambda: object())
     monkeypatch.setattr(sys, "argv", ["sweep", *argv])
-    seen = {}
+
+
+def main_with(monkeypatch, tmp_path, argv, schedule, exit_code=0):
+    use_schedule(monkeypatch, tmp_path, schedule, *argv)
+    monkeypatch.setattr(runner, "acquire_lock", lambda wait: object())
+    batches = []
 
     def record(self, batch, workers=1):
-        seen.update(jobs=batch, timeout=self.timeout, workers=workers)
+        batches.append({"jobs": batch, "timeout": self.timeout, "workers": workers})
         return []
 
     monkeypatch.setattr(runner.Runner, "run", record)
-    assert sweep.main() == 0
-    return seen
+    assert sweep.main() == exit_code
+    return batches
 
 
 def test_only_narrows_the_run_to_the_named_countries(monkeypatch, tmp_path):
-    seen = main_with(
-        monkeypatch,
-        tmp_path,
-        ["--only", "NPL"],
-        countries_schedule({"NPL": "monthly", "HTI": "monthly", "CHL": "monthly"}),
-    )
-    assert [job.iso3 for job in seen["jobs"]] == ["NPL"]
+    schedule = countries_schedule({"NPL": "monthly", "HTI": "monthly", "CHL": "monthly"})
+    [batch] = main_with(monkeypatch, tmp_path, ["--only", "NPL"], schedule)
+    assert [job.iso3 for job in batch["jobs"]] == ["NPL"]
 
 
-def test_workers_reaches_the_runner(monkeypatch, tmp_path):
-    seen = main_with(
-        monkeypatch, tmp_path, ["--workers", "3"], countries_schedule({"NPL": "monthly"})
-    )
-    assert seen["workers"] == 3
-
-
-def test_more_than_one_worker_gives_each_country_a_memory_budget(monkeypatch, tmp_path):
-    seen = main_with(
-        monkeypatch, tmp_path, ["--workers", "4"], countries_schedule({"NPL": "monthly"})
-    )
-    merged = yaml.safe_load(Path(seen["jobs"][0].config).read_text(encoding="utf-8"))
+def test_workers_reach_the_runner_and_give_each_country_a_memory_budget(monkeypatch, tmp_path):
+    schedule = countries_schedule({"NPL": "monthly"})
+    [batch] = main_with(monkeypatch, tmp_path, ["--workers", "4"], schedule)
+    assert batch["workers"] == 4
+    merged = yaml.safe_load(Path(batch["jobs"][0].config).read_text(encoding="utf-8"))
     assert merged["parallel"]["memory_gb"] == schedule_module.memory_gb_per_worker(4)
 
 
-def test_a_listed_country_takes_the_group_frequency(monkeypatch, tmp_path):
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
-    schedule = {
-        "groups": ["high_income"],
-        "high_income": {"frequency": "quarterly", "countries": ["AUT", "BEL"]},
-    }
-    jobs, _ = resolve(schedule)
-    assert [(job.iso3, job.frequency) for job in jobs] == [
-        ("AUT", "quarterly"),
-        ("BEL", "quarterly"),
-    ]
-
-
-def test_a_country_frequency_overrides_the_group(monkeypatch, tmp_path):
+def test_a_country_takes_the_group_frequency_unless_it_names_its_own(monkeypatch, tmp_path):
     monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
     schedule = {
         "groups": ["normal"],
@@ -732,9 +754,10 @@ def test_a_job_is_due_once_its_frequency_has_passed(frequency, days_since, due):
     assert due_module.is_due(_job(frequency), last, NOW) is due
 
 
-def test_an_unknown_frequency_is_a_schedule_error():
-    with pytest.raises(ScheduleError, match="sometimes"):
-        due_module.is_due(_job("sometimes"), None, NOW)
+@pytest.mark.parametrize("frequency", ["sometimes", "30"])
+def test_a_frequency_hdx_does_not_name_is_a_schedule_error(frequency):
+    with pytest.raises(ScheduleError, match="not an HDX frequency"):
+        due_module.is_due(_job(frequency), None, NOW)
 
 
 def test_due_runs_each_group_in_order_with_its_own_workers(monkeypatch, tmp_path):
@@ -743,35 +766,18 @@ def test_due_runs_each_group_in_order_with_its_own_workers(monkeypatch, tmp_path
         "priority": {"frequency": "monthly", "countries": ["SDN"]},
         "normal": {"frequency": "monthly", "workers": 2, "countries": ["NPL", "BTN"]},
     }
-    schedule_file = tmp_path / "schedule.yaml"
-    schedule_file.write_text(yaml.safe_dump(schedule), encoding="utf-8")
-    monkeypatch.setattr(jobs_module, "SCHEDULE_FILE", schedule_file)
-    monkeypatch.setattr(jobs_module, "COUNTRY_CONFIG_DIR", tmp_path / "countries")
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path / "work")
     monkeypatch.setattr(
-        due_module,
-        "last_publish",
-        lambda job: datetime.now(UTC) if job.iso3 == "BTN" else None,
+        due_module, "last_publish", lambda job: datetime.now(UTC) if job.iso3 == "BTN" else None
     )
-    monkeypatch.setattr(runner, "acquire_lock", lambda: object())
-    monkeypatch.setattr(sys, "argv", ["sweep", "--due"])
-    calls = []
-    monkeypatch.setattr(
-        runner.Runner,
-        "run",
-        lambda self, batch, workers=1: calls.append(([j.iso3 for j in batch], workers)) or [],
-    )
-    assert sweep.main() == 0
-    assert calls == [(["SDN"], 1), (["NPL"], 2)]
+    batches = main_with(monkeypatch, tmp_path, ["--due"], schedule)
+    assert [([job.iso3 for job in b["jobs"]], b["workers"]) for b in batches] == [
+        (["SDN"], 1),
+        (["NPL"], 2),
+    ]
 
 
 def test_a_daily_job_that_finished_after_yesterdays_tick_is_due_today():
     assert due_module.is_due(_job("daily"), NOW - timedelta(hours=23, minutes=40), NOW)
-
-
-def test_a_numeric_frequency_is_a_schedule_error():
-    with pytest.raises(ScheduleError, match="not an HDX frequency"):
-        due_module.is_due(_job("30"), None, NOW)
 
 
 def test_the_workers_option_overrides_country_groups_only(monkeypatch, tmp_path):
@@ -937,52 +943,57 @@ def test_a_broken_event_leaves_the_other_events_and_countries_to_run(
         "priority": {"countries": {"NPL": "daily"}},
         "events": event_base,
     }
-    schedule_file = tmp_path / "schedule.yaml"
-    schedule_file.write_text(yaml.safe_dump(schedule), encoding="utf-8")
-    monkeypatch.setattr(jobs_module, "SCHEDULE_FILE", schedule_file)
-    monkeypatch.setattr(jobs_module, "COUNTRY_CONFIG_DIR", tmp_path / "countries")
-    monkeypatch.setattr(runner, "acquire_lock", lambda: object())
-    monkeypatch.setattr(sys, "argv", ["sweep"])
-    ran = []
-
-    def record(self, batch, workers=1):
-        ran.extend(job.id for job in batch)
-        return []
-
-    monkeypatch.setattr(runner.Runner, "run", record)
-    assert sweep.main() == 1
-    assert ran == ["priority/NPL", "events/NPL-FL-2026-b"]
+    batches = main_with(monkeypatch, tmp_path, [], schedule, exit_code=1)
+    assert [job.id for b in batches for job in b["jobs"]] == [
+        "priority/NPL",
+        "events/NPL-FL-2026-b",
+    ]
     assert "broken events/NPL-FL-2026-a" in capsys.readouterr().err
 
 
 def test_a_config_due_cannot_load_makes_the_sweep_fail_after_the_rest(
     tmp_path, monkeypatch, capsys
 ):
-    schedule_file = tmp_path / "schedule.yaml"
-    schedule_file.write_text(yaml.safe_dump(countries_schedule({"NPL": "daily"})), "utf-8")
-    monkeypatch.setattr(jobs_module, "SCHEDULE_FILE", schedule_file)
-    monkeypatch.setattr(jobs_module, "COUNTRY_CONFIG_DIR", tmp_path / "countries")
-    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path / "work")
-    monkeypatch.setattr(runner, "acquire_lock", lambda: object())
-    monkeypatch.setattr(sys, "argv", ["sweep", "--due"])
     monkeypatch.setattr(due_module, "due_jobs", lambda jobs, now: (jobs, ["events/x: bad key"]))
-    ran = []
-    monkeypatch.setattr(
-        runner.Runner, "run", lambda self, batch, workers=1: ran.extend(batch) or []
-    )
-    assert sweep.main() == 1
-    assert [job.id for job in ran] == ["priority/NPL"]
+    schedule = countries_schedule({"NPL": "daily"})
+    [batch] = main_with(monkeypatch, tmp_path, ["--due"], schedule, exit_code=1)
+    assert [job.id for job in batch["jobs"]] == ["priority/NPL"]
     assert "broken events/x: bad key" in capsys.readouterr().err
 
 
+class MemoryStore:
+    def __init__(self):
+        self.documents = {}
+
+    def read(self, key):
+        document = self.documents.get(key)
+        return document, None if document is None else "etag"
+
+    def write(self, key, document, version):
+        self.documents[key] = document
+
+
 @pytest.fixture
-def pushing_base(event_base, tmp_path):
+def closed_store(monkeypatch):
+    store = MemoryStore()
+    monkeypatch.setattr(events, "S3CatalogStore", lambda cfg: store)
+    monkeypatch.setattr(events, "writes_items", lambda cfg: False)
+    return store
+
+
+@pytest.fixture
+def pushing_base(event_base, tmp_path, closed_store):
     (tmp_path / "configs" / "_event-base.yaml").write_text(
         "hdx:\n  push: true\n  site: stage\n  combine: true\n"
+        "output:\n  stac:\n    catalog: true\n  s3:\n    enabled: true\n    bucket: exports\n"
         "source:\n  overture:\n    enabled: false\n",
         encoding="utf-8",
     )
     return event_base
+
+
+def record_close(store, job):
+    store.documents[events.closed_key(load_config(job.config))] = {"expires": job.closes}
 
 
 def expired_event(events_dir, frequency="daily"):
@@ -999,34 +1010,51 @@ def test_an_expired_event_gets_one_job_that_sets_hdx_to_as_needed(events_dir, pu
     assert skipped == ["events/NPL-FL-2026-a: expired 2026-08-04"]
 
 
-def test_an_event_closed_once_is_not_closed_again(events_dir, pushing_base):
+def test_an_event_closed_once_is_not_closed_again(events_dir, pushing_base, closed_store):
     expired_event(events_dir)
-    marker = jobs_module.WORK_DIR / "closed" / "events" / "NPL-FL-2026-a@2026-08-04"
-    marker.parent.mkdir(parents=True)
-    marker.touch()
-    jobs, skipped = resolve({"groups": ["events"], "events": pushing_base})
+    schedule = {"groups": ["events"], "events": pushing_base}
+    [first] = resolve(schedule)[0]
+    record_close(closed_store, first)
+    jobs, skipped = resolve(schedule)
     assert jobs == []
     assert skipped == ["events/NPL-FL-2026-a: expired 2026-08-04, closed on HDX"]
 
 
-def test_an_event_closed_before_its_expiry_moved_is_closed_again(events_dir, pushing_base):
+def test_the_close_is_recorded_beside_the_events_stac_catalog(events_dir, pushing_base):
+    expired_event(events_dir)
+    [job] = resolve({"groups": ["events"], "events": pushing_base})[0]
+    assert events.closed_key(load_config(job.config)) == "NPL_FL_2026_A/closed.json"
+
+
+def test_an_event_without_a_stac_catalog_is_left_for_a_person_to_close(events_dir, pushing_base):
+    body = "frequency: daily\nexpires: 2026-08-04\noutput:\n  stac:\n    catalog: false\n"
+    write_config(events_dir, "NPL-FL-2026-a.yaml", body)
+    jobs, skipped = resolve({"groups": ["events"], "events": pushing_base})
+    assert jobs == []
+    assert "no STAC catalog on S3" in skipped[0]
+
+
+def test_an_event_closed_before_its_expiry_moved_is_closed_again(
+    events_dir, pushing_base, closed_store
+):
     schedule = {"groups": ["events"], "events": pushing_base}
     write_config(events_dir, "NPL-FL-2026-a.yaml", "frequency: daily\nexpires: 2026-08-01\n")
     [first] = resolve(schedule)[0]
-    first.closes.parent.mkdir(parents=True)
-    first.closes.touch()
+    record_close(closed_store, first)
     write_config(events_dir, "NPL-FL-2026-a.yaml", "frequency: daily\nexpires: 2026-08-04\n")
     jobs, _ = resolve(schedule)
     assert [job.id for job in jobs] == ["events/NPL-FL-2026-a:close"]
 
 
-@pytest.mark.parametrize(("frequency", "extra"), [("daily", ("--no-hdx-push",)), ("as needed", ())])
+@pytest.mark.parametrize(
+    ("frequency", "settings"), [("daily", {"hdx.push": False}), ("as needed", {})]
+)
 def test_an_expired_event_is_not_closed_without_pushing_or_when_already_as_needed(
-    events_dir, pushing_base, frequency, extra
+    events_dir, pushing_base, frequency, settings
 ):
     expired_event(events_dir, frequency)
     schedule = {"groups": ["events"], "events": pushing_base}
-    jobs, _, _ = resolve_all(schedule, None, None, TODAY, extra)
+    jobs, _, _ = resolve_all(schedule, None, None, TODAY, settings)
     assert jobs == []
 
 
@@ -1035,28 +1063,35 @@ def test_a_closing_job_is_due_without_reading_the_catalog(tmp_path, monkeypatch)
         raise AssertionError(job.id)
 
     monkeypatch.setattr(due_module, "last_publish", unreachable)
-    job = Job("events/a:close", "events", "metadata", tmp_path, None, closes=tmp_path / "m")
+    job = Job("events/a:close", "events", "metadata", tmp_path, None, closes="2026-08-04")
     assert due_module.due_jobs([job], NOW) == ([job], [])
 
 
-@pytest.mark.parametrize(
-    ("failed", "closed"), [([], True), (["events/NPL-FL-2026-a:close"], False)]
-)
-def test_only_a_closing_job_that_succeeds_marks_the_event_closed(
-    events_dir, pushing_base, tmp_path, monkeypatch, failed, closed
+class Publisher:
+    def __init__(self, hdx, error=None):
+        self.error = error
+
+    def update_metadata(self, cfg):
+        if self.error:
+            raise self.error
+        return "hotosm_npl_fl_2026_a", 1, 0
+
+
+@pytest.mark.parametrize(("error", "closed"), [(None, True), (RuntimeError("HDX is down"), False)])
+def test_only_a_closing_job_that_updates_hdx_records_the_close(
+    events_dir, pushing_base, closed_store, monkeypatch, error, closed
 ):
     expired_event(events_dir)
-    schedule_file = tmp_path / "schedule.yaml"
-    schedule_file.write_text(
-        yaml.safe_dump({"groups": ["events"], "events": pushing_base}), encoding="utf-8"
-    )
-    monkeypatch.setattr(jobs_module, "SCHEDULE_FILE", schedule_file)
-    monkeypatch.setattr(runner, "acquire_lock", lambda: object())
-    monkeypatch.setattr(sys, "argv", ["sweep"])
-    monkeypatch.setattr(runner.Runner, "run", lambda self, batch, workers=1: failed)
-    sweep.main()
-    marker = jobs_module.WORK_DIR / "closed" / "events" / "NPL-FL-2026-a@2026-08-04"
-    assert marker.exists() is closed
+    [job] = resolve({"groups": ["events"], "events": pushing_base})[0]
+    monkeypatch.setattr(runner, "HdxPublisher", lambda hdx: Publisher(hdx, error))
+    monkeypatch.setattr(runner, "S3CatalogStore", lambda cfg: closed_store)
+    if error:
+        with pytest.raises(RuntimeError):
+            runner.export(job)
+    else:
+        assert runner.export(job)
+    assert (closed_store.documents != {}) is closed
+    assert resolve({"groups": ["events"], "events": pushing_base})[0] == ([] if closed else [job])
 
 
 @pytest.mark.parametrize(
@@ -1077,10 +1112,7 @@ def test_an_expired_event_hdx_cannot_be_closed_for_is_skipped_with_the_reason(
 
 
 def run_check(tmp_path, monkeypatch, schedule):
-    schedule_file = tmp_path / "schedule.yaml"
-    schedule_file.write_text(yaml.safe_dump(schedule), encoding="utf-8")
-    monkeypatch.setattr(jobs_module, "SCHEDULE_FILE", schedule_file)
-    monkeypatch.setattr(sys, "argv", ["sweep", "--check"])
+    use_schedule(monkeypatch, tmp_path, schedule, "--check")
     monkeypatch.setattr(runner.Runner, "run", lambda *args: pytest.fail("--check ran a job"))
     return sweep.main()
 
@@ -1165,7 +1197,7 @@ def test_an_event_whose_layers_cannot_be_read_is_reported_broken(
 
 def test_due_jobs_keep_closing_jobs_in_their_group_order(tmp_path, monkeypatch):
     monkeypatch.setattr(due_module, "last_publish", lambda job: None)
-    close = Job("events/a:close", "events", "metadata", tmp_path, None, closes=tmp_path / "m")
+    close = Job("events/a:close", "events", "metadata", tmp_path, None, closes="2026-08-04")
     later = Job("tm/1", "tm", "osm", tmp_path, None, frequency="daily")
     assert due_module.due_jobs([close, later], NOW) == ([close, later], [])
 
@@ -1175,3 +1207,126 @@ def test_an_event_without_its_own_frequency_publishes_the_groups(events_dir, eve
     group = {**event_base, "frequency": "weekly"}
     [job], _ = resolve({"groups": ["events"], "events": group})
     assert yaml.safe_load(job.config.read_text(encoding="utf-8"))["frequency"] == "weekly"
+
+
+def test_a_sweep_takes_the_lock_before_it_decides_what_is_due(monkeypatch, tmp_path):
+    order = []
+    use_schedule(monkeypatch, tmp_path, countries_schedule({"NPL": "monthly"}), "--due", "--wait")
+    monkeypatch.setattr(runner, "acquire_lock", lambda wait: order.append("lock") or object())
+    monkeypatch.setattr(due_module, "due_jobs", lambda jobs, now: order.append("due") or ([], []))
+    assert sweep.main() == 0
+    assert order == ["lock", "due"]
+
+
+@pytest.mark.parametrize(("argv", "wait"), [([], False), (["--wait"], True)])
+def test_wait_reaches_the_lock(monkeypatch, tmp_path, argv, wait):
+    asked = []
+    use_schedule(monkeypatch, tmp_path, countries_schedule({"NPL": "monthly"}), *argv)
+    monkeypatch.setattr(runner, "acquire_lock", lambda wait: asked.append(wait))
+    assert sweep.main() == 3
+    assert asked == [wait]
+
+
+def test_a_job_stopped_right_after_it_starts_stops_within_the_grace(tmp_path, monkeypatch, capfd):
+    monkeypatch.setattr(runner, "STOP_GRACE_SECONDS", 20)
+    job_runner = runner.Runner(60, hang)
+
+    def interrupt_once_started():
+        deadline = time.monotonic() + 10
+        while not job_runner._running and time.monotonic() < deadline:
+            time.sleep(0.001)
+        os.kill(os.getpid(), signal.SIGINT)
+
+    threading.Thread(target=interrupt_once_started, daemon=True).start()
+    started = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        job_runner.run([stub("early")])
+    assert time.monotonic() - started < 15
+    assert "early STOPPED" in capfd.readouterr().err
+
+
+def test_jobs_stopped_together_share_one_grace_period(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "STOP_GRACE_SECONDS", 3)
+    markers = [tmp_path / name for name in "abc"]
+    jobs = [stub(marker.name, marker) for marker in markers]
+
+    def interrupt_once_all_run():
+        deadline = time.monotonic() + 30
+        while not all(m.exists() for m in markers) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        os.kill(os.getpid(), signal.SIGINT)
+
+    threading.Thread(target=interrupt_once_all_run, daemon=True).start()
+    with pytest.raises(KeyboardInterrupt):
+        runner.Runner(60, touch_then_ignore_sigterm).run(jobs, 3)
+    stopped = time.time()
+    assert all(marker.exists() for marker in markers)
+    assert stopped - max(marker.stat().st_mtime for marker in markers) < 3 * 2
+
+
+@pytest.mark.parametrize("stop", ["ctrl_c", "sigterm", "waiting_for_the_lock"])
+def test_a_stopped_sweep_exits_130(monkeypatch, tmp_path, capsys, stop):
+    use_schedule(monkeypatch, tmp_path, countries_schedule({"NPL": "monthly"}), "--wait")
+    handlers = {}
+    monkeypatch.setattr(
+        signal, "signal", lambda signum, handler: handlers.update({signum: handler})
+    )
+
+    def lock(wait):
+        if stop == "waiting_for_the_lock":
+            raise KeyboardInterrupt
+        return object()
+
+    def stopped(self, batch, workers=1):
+        if stop == "ctrl_c":
+            raise KeyboardInterrupt
+        handlers[signal.SIGTERM](signal.SIGTERM, None)
+
+    monkeypatch.setattr(runner, "acquire_lock", lock)
+    monkeypatch.setattr(runner.Runner, "run", stopped)
+    assert sweep.main() == 130
+    assert "sweep: stopped" in capsys.readouterr().err
+
+
+def test_a_merged_config_is_replaced_whole_and_leaves_no_staging_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path)
+    target = jobs_module.write_merged("events/x.yaml", OmegaConf.create({"frequency": "weekly"}))
+    with target.open(encoding="utf-8") as reader:
+        jobs_module.write_merged("events/x.yaml", OmegaConf.create({"frequency": "monthly"}))
+        assert reader.read() == "frequency: weekly\n"
+    assert yaml.safe_load(target.read_text(encoding="utf-8")) == {"frequency": "monthly"}
+    assert [path.name for path in target.parent.iterdir()] == ["x.yaml"]
+
+
+def record_pid_then_ignore_sigterm(job):
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    job.config.write_text(str(os.getpid()))
+    time.sleep(30)
+
+
+def test_a_second_ctrl_c_during_the_stop_still_kills_the_job(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "STOP_GRACE_SECONDS", 2)
+    pid_file = tmp_path / "job.pid"
+    pid_file.touch()
+
+    def interrupt_twice_once_running():
+        deadline = time.monotonic() + 30
+        while not pid_file.read_text() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        os.kill(os.getpid(), signal.SIGINT)
+        time.sleep(0.5)
+        os.kill(os.getpid(), signal.SIGINT)
+
+    threading.Thread(target=interrupt_twice_once_running, daemon=True).start()
+    with pytest.raises(KeyboardInterrupt):
+        runner.Runner(60, record_pid_then_ignore_sigterm).run([stub("stubborn", pid_file)])
+    assert _gone_within(pid_file, seconds=2)
+    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+
+
+def test_check_loads_the_shipped_configs_from_any_working_directory(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(jobs_module, "WORK_DIR", tmp_path / "work")
+    monkeypatch.setattr(sys, "argv", ["sweep", "--check", "--group", "priority"])
+    assert sweep.main() == 0
+    assert "0 broken" in capsys.readouterr().out

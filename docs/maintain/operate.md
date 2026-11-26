@@ -50,7 +50,8 @@ reconcile the two by hand when it changes.
 ## Check the results
 
 - The [update status page](https://hotosm.github.io/hot2hdx-status/) shows overdue datasets.
-- `.sweep/merged/<ISO3>.yaml` shows the exact config a country ran with. `.sweep/` is in
-  `OEX_DATA_DIR` when it is set, otherwise in the repository.
+- `.sweep/merged/<ISO3>.yaml` holds the config the last sweep resolved for a country, before
+  command-line options. `.sweep/` is in `OEX_DATA_DIR` when it is set, otherwise in the
+  repository.
 
-To run the exports on a machine of their own, see [Deploy](deploy.md).
+To run the exports on a schedule, see [Deploy](deploy.md).

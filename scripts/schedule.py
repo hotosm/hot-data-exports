@@ -45,7 +45,6 @@ def normalise_attributes(value: object, default_frequency: str | None) -> dict:
 
 
 def skip_reason(attributes: dict, frequency_filter: str | None, today: date) -> str | None:
-    """Why a job that matched the filters still will not run."""
     if not attributes["enabled"]:
         return "disabled"
     expires = attributes.get("expires")
@@ -125,7 +124,6 @@ def group_workers(name: str, group: dict, workers_override: int | None) -> int:
 
 
 def select_countries(selected: list[Job], only: str) -> list[Job]:
-    """Narrow a resolved job list to the named ISO3 codes, for finishing a long sweep."""
     wanted = {code.strip().upper() for code in only.split(",") if code.strip()}
     unknown = wanted - {job.iso3 for job in selected if job.iso3}
     if unknown:
@@ -141,7 +139,7 @@ class Schedule:
         schedule: dict,
         today: date,
         frequency: str | None = None,
-        extra: tuple[str, ...] = (),
+        settings: dict[str, object] | None = None,
         workers: int | None = None,
         every: bool = False,
     ):
@@ -152,7 +150,7 @@ class Schedule:
         self.schedule = schedule
         self.today = today
         self.frequency = frequency
-        self.extra = extra
+        self.settings = settings or {}
         self.workers = workers
         self.every = every
 
@@ -228,7 +226,7 @@ class Schedule:
                 command,
                 config,
                 iso3,
-                self.extra,
+                self.settings,
                 attributes["frequency"],
                 workers,
             )
@@ -242,7 +240,7 @@ class Schedule:
             reason.startswith("expired")
             and "base" in group
             and self.frequency is None
-            and "--no-hdx-push" not in self.extra
+            and self.settings.get("hdx.push") is not False
         )
         if not closes or candidate.config is None:
             return [], reason
