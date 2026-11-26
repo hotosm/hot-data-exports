@@ -10,7 +10,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_PREFERENCE=only-managed
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
+    && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -34,7 +34,7 @@ RUN /tmp/install-tippecanoe.sh
 FROM ${BASE} AS exports
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends osmium-tool \
+    && apt-get install -y --no-install-recommends ca-certificates osmium-tool \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=tippecanoe /usr/local/bin/tippecanoe /usr/local/bin/tippecanoe
 COPY --from=builder /opt/python /opt/python
